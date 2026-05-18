@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.venv
+*.egg-info
+config.toml
+archive.txt
+cookies.txt
+*.spec
+build_exe.py
+yt_downloader_gui.py
+AGENTS.md
+.sisyphus

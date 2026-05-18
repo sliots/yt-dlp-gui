@@ -1,0 +1,21 @@
+services:
+  yt-dlp-gui:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # 持久化目录：config.toml + archive.txt + cookies.txt
+      - /host/yt-dlp-data:/app/config
+      # 下载产物
+      - /host/downloads:/downloads
+      # 二进制覆盖（可选：不挂载则使用 Dockerfile 内置版本）
+      # - /host/yt-dlp:/usr/local/bin/yt-dlp
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    mem_limit: 2g                       # 防止 Deno stdin hang（issue #16148）
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
