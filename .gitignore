@@ -1,7 +1,7 @@
 # 运行时数据
 archive.txt
 config.toml
-cookies.txt
+cookie*.txt
 
 # 下载输出
 download/
