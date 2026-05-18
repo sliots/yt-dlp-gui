@@ -10,6 +10,9 @@ on:
         description: "Version tag (e.g. 2.0.0), leave empty for 'latest' only"
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
