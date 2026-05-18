@@ -1,2 +1,17 @@
+# 运行时数据
 archive.txt
 config.toml
+cookies.txt
+
+# 下载输出
+download/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# 工作区
+.sisyphus/
