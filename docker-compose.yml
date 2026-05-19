@@ -8,6 +8,10 @@ services:
       - /host/yt-dlp-data:/app/config
       # 下载产物
       - /host/downloads:/downloads
+      # 浏览器 Profile（cookies-from-browser 模式，Firefox 推荐）
+      # Windows 宿主机: C:\Users\xxx\AppData\Roaming\Mozilla\Firefox\Profiles\xxx.default-release
+      # WSL 中对应:   /mnt/c/Users/xxx/AppData/Roaming/Mozilla/Firefox/Profiles/xxx.default-release
+      # - /mnt/c/Users/xxx/AppData/Roaming/Mozilla/Firefox/Profiles/xxx.default-release:/firefox-profile:ro
       # 二进制覆盖（可选：不挂载则使用 Dockerfile 内置版本）
       # - /host/yt-dlp:/usr/local/bin/yt-dlp
     environment:
