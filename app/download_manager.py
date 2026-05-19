@@ -52,7 +52,7 @@ class DownloadManager:
         self._current_channel_label = info.get("channel_label", "")
         self._progress_percent = info.get("percent", 0)
 
-    async def _wrap_progress(self, engine: YtDlpEngine) -> None:
+    def _wrap_progress(self, engine: YtDlpEngine) -> None:
         original = engine._broadcaster.broadcast_sync
 
         def _hooked(level: str, message: str) -> None:
