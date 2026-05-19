@@ -649,6 +649,7 @@
 
     <div class="ctrl-row" style="margin-top:16px;">
         <button onclick="saveSettings()">💾 保存设置</button>
+        <button class="danger" onclick="restartServer()" style="margin-left:12px;">🔄 重启服务</button>
     </div>
 </div>
 
@@ -1225,6 +1226,15 @@ function setVal(id, value, isCheckbox) {
         el.checked = !!value;
     } else if (value !== undefined && value !== null) {
         el.value = value;
+    }
+}
+
+async function restartServer() {
+    if (!confirm('确认重启服务？正在下载的任务将被中断。')) return;
+    var result = await post('/api/control/restart');
+    if (result && result.ok) {
+        toast('服务正在重启，页面即将刷新...', true);
+        setTimeout(function() { location.reload(); }, 3000);
     }
 }
 

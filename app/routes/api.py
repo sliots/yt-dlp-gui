@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, UploadFile
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
 
@@ -26,6 +26,12 @@ class ChannelCreate(BaseModel):
 
 class CookiesText(BaseModel):
     content: str = Field(min_length=1, max_length=500_000)
+
+
+def _delayed_exit() -> None:
+    import time
+    time.sleep(0.5)
+    os._exit(0)
 
 
 class ConfigUpdate(BaseModel):
@@ -52,6 +58,11 @@ class ConfigUpdate(BaseModel):
 
 def build_router(manager: DownloadManager, config: dict) -> APIRouter:
     router = APIRouter(prefix="/api")
+
+    @router.post("/control/restart")
+    async def restart(bg: BackgroundTasks):
+        bg.add_task(_delayed_exit)
+        return {"ok": True, "msg": "正在重启..."}
 
     @router.get("/health")
     def health():
