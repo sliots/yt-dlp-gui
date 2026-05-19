@@ -102,12 +102,26 @@ is_first = false
 - **内存限制**: 2GB（防止 Deno stdin hang）
 - **端口**: 通过 `PORT` 环境变量配置（默认 8080）
 - **访问日志**: uvicorn `access_log=False`，仅保留应用级日志
+- **定时构建**: GitHub Actions 每日 UTC 00:00 自动构建，跟随 yt-dlp nightly 更新
+- **版本策略**: 每次代码变更递增小版本（v2.0.1 → v2.0.2 → ...）
+
+## 配置热更新
+
+| 配置项 | 即时生效 | 需重启 |
+|--------|----------|--------|
+| `cookies_source` / `cookies_browser` | ✅ | |
+| `sleep_requests` / `sleep_time` / `wait_time_minutes` | ✅ | |
+| 频道列表 (CRUD) | ✅ | |
+| `normal_limit` / `first_run_limit` | ✅ | |
+| `log_max_history` | | ✅ (LogBroadcaster 初始化) |
+| `output_base_path` / `dateafter` | ✅ (下次下载轮次) | |
+| `proxy_url` / `quiet_mode` | ✅ (下次下载轮次) | |
 
 ## 从桌面版迁移的变更
 
 | 变更 | 说明 |
 |------|------|
-| `--cookies-from-browser` → `--cookies` | Docker 无桌面浏览器 |
+| `--cookies-from-browser` → `--cookies` / `--cookies-from-browser` | 支持两种模式，browser 模式挂载 Firefox profile |
 | `CREATE_NO_WINDOW` → 删除 | Linux 不需要 |
 | `process.terminate()` → `os.killpg()` + `start_new_session=True` | 杀整个进程组（含 ffmpeg） |
 | QThread → asyncio + `asyncio.to_thread()` | DownloadManager 异步管理 |
