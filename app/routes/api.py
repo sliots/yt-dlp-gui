@@ -131,8 +131,13 @@ def build_router(manager: DownloadManager, config: dict) -> APIRouter:
     @router.put("/config")
     def update_config(body: ConfigUpdate):
         g = config.setdefault("general", {})
-        for field_name in type(body).model_fields:
-            g[field_name] = getattr(body, field_name)
+        for field in ("output_base_path", "proxy_url", "sleep_requests", "sleep_time",
+                       "wait_time_minutes", "quiet_mode", "dateafter", "download_archive",
+                       "filename_format", "first_run_timeout", "normal_timeout",
+                       "cookies_file_path", "cookies_source", "cookies_browser",
+                       "cookies_browser_profile", "cookies_browser_container",
+                       "log_max_history"):
+            g[field] = getattr(body, field)
         l = config.setdefault("download_limits", {})
         l["normal_limit"] = body.normal_limit
         l["first_run_limit"] = body.first_run_limit
