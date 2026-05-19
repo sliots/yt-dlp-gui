@@ -50,7 +50,7 @@ def main() -> None:
     set_event_loop(loop)
 
     port = int(os.getenv("PORT", "8080"))
-    uvicorn_config = uvicorn.Config(app, host="0.0.0.0", port=port, loop="none")
+    uvicorn_config = uvicorn.Config(app, host="0.0.0.0", port=port, access_log=False, loop="none")
     server = uvicorn.Server(uvicorn_config)
 
     logger.info("YT-DLP Download Manager started on 0.0.0.0:%d", port)
