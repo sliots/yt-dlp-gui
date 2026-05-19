@@ -1263,6 +1263,7 @@ async function saveSettings() {
 
     var result = await put('/api/config', body);
     if (result.ok) {
+        LOG_MAX = body.log_max_history;
         toast('设置已保存', true);
         checkCookieStatus();
     }
