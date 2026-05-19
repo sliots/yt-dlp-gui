@@ -115,7 +115,6 @@ class YtDlpEngine:
             cmd.extend(["--cookies", cookies_path])
 
         cmd.extend([
-            "--cookies", cookies_path,
             "--dateafter", dateafter,
             "--download-archive", archive_path,
             "--embed-metadata",
