@@ -33,20 +33,24 @@ jobs:
       - name: Determine tags
         id: tags
         run: |
+          IMG="${{ secrets.DOCKERHUB_USERNAME }}/yt-dlp-gui"
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            echo "list=nightly,latest" >> "$GITHUB_OUTPUT"
+            TAGS="nightly,latest"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            V="${{ github.event.inputs.version }}"
-            echo "list=${V:-latest}" >> "$GITHUB_OUTPUT"
+            TAGS="${{ github.event.inputs.version }}"
+            [[ -z "$TAGS" ]] && TAGS="latest"
           else
-            echo "list=${GITHUB_REF_NAME#v},latest" >> "$GITHUB_OUTPUT"
+            TAGS="${GITHUB_REF_NAME#v},latest"
           fi
+          echo "list<<EOF" >> "$GITHUB_OUTPUT"
+          for t in ${TAGS//,/ }; do echo "${IMG}:${t}" >> "$GITHUB_OUTPUT"; done
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/yt-dlp-gui:${{ steps.tags.outputs.list }}
+          tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
