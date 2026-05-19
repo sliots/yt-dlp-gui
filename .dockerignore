@@ -1,15 +1,29 @@
-__pycache__
+# Python
+__pycache__/
 *.pyc
 *.pyo
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Git
 .git
 .gitignore
-.venv
-*.egg-info
+.github/
+
+# 运行时数据
 config.toml
 archive.txt
 cookies.txt
+
+# 工作区 / 文档
+.sisyphus/
+*.md
 *.spec
+
+# 已删除的旧文件（以防残留）
 build_exe.py
 yt_downloader_gui.py
-AGENTS.md
-.sisyphus
+
+# 测试
+tests/
