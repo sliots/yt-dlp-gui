@@ -67,7 +67,12 @@ download_archive = "archive.txt"
 filename_format = "[%(upload_date>%Y-%m-%d)s]%(title)s [%(id)s].%(ext)s"
 first_run_timeout = 360
 normal_timeout = 60
+cookies_source = "file"
 cookies_file_path = "/app/config/cookies.txt"
+cookies_browser = "firefox"
+cookies_browser_profile = ""
+cookies_browser_container = ""
+log_max_history = 200
 
 [download_limits]
 normal_limit = 20
@@ -85,13 +90,18 @@ is_first = false
 
 ## Docker 设计
 
-- **yt-dlp**: nightly 独立二进制 `/usr/local/bin/yt-dlp`（内置 curl_cffi）
+- **yt-dlp**: nightly 独立二进制 `/usr/local/bin/yt-dlp`（来源 `yt-dlp-nightly-builds`，内置 curl_cffi）
 - **Deno**: `/usr/local/bin/deno`（YouTube JS challenge）
 - **ffmpeg**: apt 安装 `/usr/bin/ffmpeg`
-- **Cookie**: 通过 API 上传 `cookies.txt`，`--cookies` 替代 `--cookies-from-browser`
+- **Cookie**: 支持两种模式 — 
+  - `file`：通过 API 上传 `cookies.txt`，`--cookies <path>`
+  - `browser`：`--cookies-from-browser <browser>:<profile>`，挂载宿主机 Firefox profile（纯文本 SQLite，无需 keyring）
 - **持久化**: `/app/config/`（配置 + archive + cookies），`/downloads/`（下载产物）
+- **重启**: 设置页「🔄 重启服务」按钮，通过 `os._exit(0)` + Docker `restart: unless-stopped` 实现
 - **健康检查**: `GET /api/health`
 - **内存限制**: 2GB（防止 Deno stdin hang）
+- **端口**: 通过 `PORT` 环境变量配置（默认 8080）
+- **访问日志**: uvicorn `access_log=False`，仅保留应用级日志
 
 ## 从桌面版迁移的变更
 

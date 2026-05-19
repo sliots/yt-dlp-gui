@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  schedule:
+    - cron: "0 0 * * *"          # 每日 UTC 00:00，跟随 yt-dlp nightly 更新
   workflow_dispatch:
     inputs:
       version:
@@ -28,23 +30,23 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Determine version
-        id: version
+      - name: Determine tags
+        id: tags
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VER="${{ github.event.inputs.version }}"
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "list=nightly,latest" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            V="${{ github.event.inputs.version }}"
+            echo "list=${V:-latest}" >> "$GITHUB_OUTPUT"
           else
-            VER="${GITHUB_REF_NAME#v}"
+            echo "list=${GITHUB_REF_NAME#v},latest" >> "$GITHUB_OUTPUT"
           fi
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/yt-dlp-gui:${{ steps.version.outputs.version || 'latest' }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/yt-dlp-gui:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/yt-dlp-gui:${{ steps.tags.outputs.list }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
