@@ -99,7 +99,21 @@ class YtDlpEngine:
         if self.general.get("quiet_mode", False):
             cmd.append("--quiet")
 
-        cookies_path = self.general.get("cookies_file_path", "/app/config/cookies.txt")
+        cookies_source = self.general.get("cookies_source", "file")
+        if cookies_source == "browser":
+            browser = self.general.get("cookies_browser", "firefox")
+            profile = self.general.get("cookies_browser_profile", "")
+            container = self.general.get("cookies_browser_container", "")
+            spec = browser
+            if profile:
+                spec += f":{profile}"
+            if container:
+                spec += f"::{container}"
+            cmd.extend(["--cookies-from-browser", spec])
+        else:
+            cookies_path = self.general.get("cookies_file_path", "/app/config/cookies.txt")
+            cmd.extend(["--cookies", cookies_path])
+
         cmd.extend([
             "--cookies", cookies_path,
             "--dateafter", dateafter,

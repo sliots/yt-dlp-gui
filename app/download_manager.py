@@ -79,14 +79,16 @@ class DownloadManager:
         self._progress_percent = 0.0
         self._broadcaster.broadcast_sync("INFO", f"启动模式：{mode}")
 
-        cookies_path = self._config["general"].get("cookies_file_path", "/app/config/cookies.txt")
-        if cookies_path and not os.path.exists(cookies_path):
-            self._broadcaster.broadcast_sync(
-                "ERROR",
-                f"✖ cookies 文件不存在：{cookies_path}，请先通过 API 上传",
-            )
-            self._broadcaster.broadcast_sync("ERROR", "上传方式：设置 Tab → 上传 cookies.txt")
-            return {"ok": False, "reason": "cookies 文件不存在，请先上传"}
+        cookies_source = self._config["general"].get("cookies_source", "file")
+        if cookies_source == "file":
+            cookies_path = self._config["general"].get("cookies_file_path", "/app/config/cookies.txt")
+            if cookies_path and not os.path.exists(cookies_path):
+                self._broadcaster.broadcast_sync(
+                    "ERROR",
+                    f"✖ cookies 文件不存在：{cookies_path}，请先通过 API 上传",
+                )
+                self._broadcaster.broadcast_sync("ERROR", "上传方式：设置 Tab → 上传 cookies.txt")
+                return {"ok": False, "reason": "cookies 文件不存在，请先上传"}
 
         try:
             wait_minutes = self._config["general"].get("wait_time_minutes", 360)

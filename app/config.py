@@ -27,6 +27,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "first_run_timeout": 360,
         "normal_timeout": 60,
         "cookies_file_path": "/app/config/cookies.txt",
+        "cookies_source": "file",
+        "cookies_browser": "firefox",
+        "cookies_browser_profile": "",
+        "cookies_browser_container": "",
         "log_max_history": 200,
     },
     "download_limits": {

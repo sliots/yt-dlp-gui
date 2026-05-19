@@ -43,6 +43,10 @@ class ConfigUpdate(BaseModel):
     first_run_timeout: int = Field(ge=1, le=99999, default=360)
     normal_timeout: int = Field(ge=1, le=99999, default=60)
     cookies_file_path: str = "/app/config/cookies.txt"
+    cookies_source: str = "file"
+    cookies_browser: str = "firefox"
+    cookies_browser_profile: str = ""
+    cookies_browser_container: str = ""
     log_max_history: int = Field(ge=10, le=9999, default=200)
 
 

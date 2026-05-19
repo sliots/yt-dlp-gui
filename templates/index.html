@@ -549,19 +549,52 @@
         <input type="text" id="cfg-proxy_url" placeholder="socks5://127.0.0.1:1080" style="flex:1;max-width:400px;">
     </div>
     <div class="ctrl-row">
-        <label>Cookie 文件路径</label>
-        <input type="text" id="cfg-cookies_file_path" placeholder="/app/config/cookies.txt" style="flex:1;max-width:400px;">
-    </div>
-    <div class="ctrl-row">
-        <label>上传 Cookies</label>
-        <input type="file" id="cookies-file" accept=".txt" style="flex:1;max-width:300px;">
-        <button class="secondary" onclick="uploadCookies()">上传</button>
+        <label>Cookie 来源</label>
+        <select id="cfg-cookies_source" style="flex:1;max-width:200px;" onchange="toggleCookieSection()">
+            <option value="file">📁 文件</option>
+            <option value="browser">🌐 浏览器</option>
+        </select>
     </div>
 
-    <div class="ctrl-row">
-        <label>粘贴 Cookies</label>
-        <textarea id="cookies-text" placeholder="直接粘贴 Netscape 格式的 cookie 内容（从浏览器导出或用 --cookies-from-browser 获取）..." rows="4" style="flex:1;max-width:500px;"></textarea>
-        <button class="secondary" onclick="saveCookiesText()">保存</button>
+    <!-- 文件模式 -->
+    <div id="cookie-file-section">
+        <div class="ctrl-row">
+            <label>Cookie 文件路径</label>
+            <input type="text" id="cfg-cookies_file_path" placeholder="/app/config/cookies.txt" style="flex:1;max-width:400px;">
+        </div>
+        <div class="ctrl-row">
+            <label>上传 Cookies</label>
+            <input type="file" id="cookies-file" accept=".txt" style="flex:1;max-width:300px;">
+            <button class="secondary" onclick="uploadCookies()">上传</button>
+        </div>
+        <div class="ctrl-row">
+            <label>粘贴 Cookies</label>
+            <textarea id="cookies-text" placeholder="直接粘贴 Netscape 格式的 cookie 内容（从浏览器导出或用 --cookies-from-browser 获取）..." rows="4" style="flex:1;max-width:500px;"></textarea>
+            <button class="secondary" onclick="saveCookiesText()">保存</button>
+        </div>
+    </div>
+
+    <!-- 浏览器模式 -->
+    <div id="cookie-browser-section" style="display:none;">
+        <div class="ctrl-row">
+            <label>浏览器</label>
+            <select id="cfg-cookies_browser" style="flex:1;max-width:200px;">
+                <option value="firefox">Firefox</option>
+                <option value="chrome">Chrome</option>
+                <option value="chromium">Chromium</option>
+                <option value="brave">Brave</option>
+                <option value="edge">Edge</option>
+                <option value="opera">Opera</option>
+            </select>
+        </div>
+        <div class="ctrl-row">
+            <label>Profile 路径</label>
+            <input type="text" id="cfg-cookies_browser_profile" placeholder="留空=自动检测，或填写容器内路径" style="flex:1;max-width:400px;">
+        </div>
+        <div class="ctrl-row">
+            <label>容器名称</label>
+            <input type="text" id="cfg-cookies_browser_container" placeholder="留空=全部，none=无容器" style="flex:1;max-width:200px;">
+        </div>
     </div>
 
     <div class="section-title">下载设置</div>
@@ -1163,6 +1196,11 @@ async function loadConfig() {
     setVal('cfg-output_base_path', g.output_base_path);
     setVal('cfg-proxy_url', g.proxy_url);
     setVal('cfg-cookies_file_path', g.cookies_file_path);
+    setVal('cfg-cookies_source', g.cookies_source);
+    setVal('cfg-cookies_browser', g.cookies_browser);
+    setVal('cfg-cookies_browser_profile', g.cookies_browser_profile);
+    setVal('cfg-cookies_browser_container', g.cookies_browser_container);
+    toggleCookieSection();
     setVal('cfg-sleep_requests', g.sleep_requests);
     setVal('cfg-sleep_time', g.sleep_time);
     setVal('cfg-wait_time_minutes', g.wait_time_minutes);
@@ -1206,6 +1244,10 @@ async function saveSettings() {
         first_run_timeout: parseInt(document.getElementById('cfg-first_run_timeout').value) || 360,
         normal_timeout: parseInt(document.getElementById('cfg-normal_timeout').value) || 60,
         cookies_file_path: document.getElementById('cfg-cookies_file_path').value || '/app/config/cookies.txt',
+        cookies_source: document.getElementById('cfg-cookies_source').value,
+        cookies_browser: document.getElementById('cfg-cookies_browser').value,
+        cookies_browser_profile: document.getElementById('cfg-cookies_browser_profile').value,
+        cookies_browser_container: document.getElementById('cfg-cookies_browser_container').value,
         log_max_history: parseInt(document.getElementById('cfg-log_max_history').value) || 200,
     };
 
@@ -1269,16 +1311,28 @@ async function saveCookiesText() {
 }
 
 async function checkCookieStatus() {
-    try {
-        var res = await fetch('/api/cookies/status');
-        var json = await res.json();
-        var warning = document.getElementById('cookie-warning');
-        if (json.ok && !json.exists) {
-            warning.style.display = 'block';
-        } else {
-            warning.style.display = 'none';
-        }
-    } catch (_) {}
+    var source = document.getElementById('cfg-cookies_source').value;
+    var warning = document.getElementById('cookie-warning');
+    if (source === 'file') {
+        try {
+            var res = await fetch('/api/cookies/status');
+            var json = await res.json();
+            if (json.ok && !json.exists) {
+                warning.style.display = 'block';
+                warning.textContent = '\u26a0 cookies 文件不存在，请前往「\u2699 设置」→ 上传或粘贴 Cookies 后再运行下载';
+            } else {
+                warning.style.display = 'none';
+            }
+        } catch (_) {}
+    } else {
+        warning.style.display = 'none';
+    }
+}
+
+function toggleCookieSection() {
+    var source = document.getElementById('cfg-cookies_source').value;
+    document.getElementById('cookie-file-section').style.display = source === 'file' ? '' : 'none';
+    document.getElementById('cookie-browser-section').style.display = source === 'browser' ? '' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════
