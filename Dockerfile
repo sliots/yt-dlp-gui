@@ -10,7 +10,7 @@ RUN curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x8
     -o /tmp/deno.zip && unzip /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip
 
 # yt-dlp nightly 独立二进制（内置 curl_cffi + certifi + brotli + websockets + requests）
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/download/nightly/yt-dlp_linux \
+RUN curl -fsSL https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux \
     -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
 
 # Python 依赖
