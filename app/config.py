@@ -27,6 +27,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "first_run_timeout": 360,
         "normal_timeout": 60,
         "cookies_file_path": "/app/config/cookies.txt",
+        "log_max_history": 200,
     },
     "download_limits": {
         "normal_limit": 20,

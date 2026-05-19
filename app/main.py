@@ -39,7 +39,9 @@ def create_app(
 def main() -> None:
     config = load_config()
 
-    broadcaster = LogBroadcaster(max_history=200)
+    broadcaster = LogBroadcaster(
+        max_history=config.get("general", {}).get("log_max_history", 200)
+    )
     broadcaster.install_log_handler("yt_dlp_gui")
 
     manager = DownloadManager(config, broadcaster)

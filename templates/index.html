@@ -609,6 +609,10 @@
         <label>安静模式</label>
         <input type="checkbox" id="cfg-quiet_mode">
     </div>
+    <div class="ctrl-row">
+        <label>日志保留行数</label>
+        <input type="number" id="cfg-log_max_history" min="10" max="9999" style="width:120px;">
+    </div>
 
     <div class="ctrl-row" style="margin-top:16px;">
         <button onclick="saveSettings()">💾 保存设置</button>
@@ -1168,6 +1172,8 @@ async function loadConfig() {
     setVal('cfg-quiet_mode', g.quiet_mode, true);
     setVal('cfg-normal_timeout', g.normal_timeout);
     setVal('cfg-first_run_timeout', g.first_run_timeout);
+    setVal('cfg-log_max_history', g.log_max_history);
+    LOG_MAX = g.log_max_history || 200;
 
     var dl = data.download_limits || {};
     setVal('cfg-normal_limit', dl.normal_limit);
@@ -1200,6 +1206,7 @@ async function saveSettings() {
         first_run_timeout: parseInt(document.getElementById('cfg-first_run_timeout').value) || 360,
         normal_timeout: parseInt(document.getElementById('cfg-normal_timeout').value) || 60,
         cookies_file_path: document.getElementById('cfg-cookies_file_path').value || '/app/config/cookies.txt',
+        log_max_history: parseInt(document.getElementById('cfg-log_max_history').value) || 200,
     };
 
     var result = await put('/api/config', body);

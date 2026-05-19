@@ -43,6 +43,7 @@ class ConfigUpdate(BaseModel):
     first_run_timeout: int = Field(ge=1, le=99999, default=360)
     normal_timeout: int = Field(ge=1, le=99999, default=60)
     cookies_file_path: str = "/app/config/cookies.txt"
+    log_max_history: int = Field(ge=10, le=9999, default=200)
 
 
 def build_router(manager: DownloadManager, config: dict) -> APIRouter:
