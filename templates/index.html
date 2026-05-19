@@ -701,6 +701,16 @@ function toast(msg, ok) {
 // ═══════════════════════════════════════════════════════════
 // HTTP helpers
 // ═══════════════════════════════════════════════════════════
+function _showApiError(res, json) {
+    if (json && json.detail && Array.isArray(json.detail)) {
+        json.detail.forEach(function(d) {
+            var loc = (d.loc || []).join('.');
+            toast((loc ? loc + ': ' : '') + d.msg, false);
+        });
+    } else {
+        toast('请求失败 (' + res.status + ')', false);
+    }
+}
 async function get(url) {
     try {
         var res = await fetch(url);
@@ -721,6 +731,7 @@ async function post(url, body) {
         }
         var res = await fetch(url, opts);
         var json = await res.json();
+        if (!res.ok) { _showApiError(res, json); return { ok: false }; }
         if (!json.ok) {
             toast(json.reason || '操作失败', false);
         }
@@ -739,6 +750,7 @@ async function put(url, body) {
             body: JSON.stringify(body)
         });
         var json = await res.json();
+        if (!res.ok) { _showApiError(res, json); return { ok: false }; }
         if (json.ok === false) {
             toast(json.reason || '请求失败', false);
         }
@@ -753,6 +765,7 @@ async function del(url) {
     try {
         var res = await fetch(url, { method: 'DELETE' });
         var json = await res.json();
+        if (!res.ok) { _showApiError(res, json); return { ok: false }; }
         if (json.ok === false) {
             toast(json.reason || '删除失败', false);
         }
