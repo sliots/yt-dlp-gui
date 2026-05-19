@@ -104,6 +104,8 @@ is_first = false
 - **访问日志**: uvicorn `access_log=False`，仅保留应用级日志
 - **定时构建**: GitHub Actions 每日 UTC 00:00 自动构建，跟随 yt-dlp nightly 更新
 - **版本策略**: 每次代码变更递增小版本（v2.0.1 → v2.0.2 → ...）
+- **基础镜像**: `python:3.14-slim`
+- **层缓存**: yt-dlp 置于最底层，每日构建仅重拉 yt-dlp 层，apt/deno/pip 命中缓存
 
 ## 配置热更新
 
