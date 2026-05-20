@@ -317,6 +317,38 @@
         .log-line.PROGRESS { color: var(--subtext); }
         .log-line.DETAIL { color: var(--overlay); }
 
+        /* ─── Log stats ─── */
+        .log-stats {
+            background: #11111b;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 14px 16px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .log-stats .stat-cell {
+            text-align: center;
+        }
+        .log-stats .stat-num {
+            font-size: 22px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.2;
+        }
+        .log-stats .stat-label {
+            font-size: 11px;
+            color: var(--subtext);
+            margin-top: 2px;
+        }
+        .log-stats .stat-num.c-success { color: var(--green); }
+        .log-stats .stat-num.c-warn   { color: var(--yellow); }
+        .log-stats .stat-num.c-error  { color: var(--red); }
+        .log-stats .stat-num.c-accent { color: var(--accent); }
+        .log-stats .stat-num.c-peach  { color: var(--peach); }
+        .log-stats .stat-num.c-subtext { color: var(--subtext); }
+        .log-stats .stat-num.c-mauve  { color: var(--mauve); }
+
         /* ─── Modal ─── */
         .modal-overlay {
             display: none;
@@ -460,6 +492,17 @@
             <input type="checkbox" id="auto-scroll" checked>
             <span style="color:var(--subtext);">自动滚动</span>
         </label>
+    </div>
+
+    <div class="log-stats" id="log-stats" style="display:none;">
+        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-total">--</div><div class="stat-label">总任务</div></div>
+        <div class="stat-cell"><div class="stat-num c-success" id="ls-ok">--</div><div class="stat-label">已完成</div></div>
+        <div class="stat-cell"><div class="stat-num c-warn" id="ls-warn">--</div><div class="stat-label">有警告</div></div>
+        <div class="stat-cell"><div class="stat-num c-accent" id="ls-duration">--</div><div class="stat-label">耗时</div></div>
+        <div class="stat-cell"><div class="stat-num c-peach" id="ls-dl">--</div><div class="stat-label">📥 下载</div></div>
+        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-archive">--</div><div class="stat-label">📦 归档跳过</div></div>
+        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-filter">--</div><div class="stat-label">⏭ 过滤跳过</div></div>
+        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-member">--</div><div class="stat-label">🔒 会员限制</div></div>
     </div>
 
     <div class="log-area" id="log-area"><div style="color:var(--subtext)">等待任务开始...</div></div>
@@ -671,6 +714,11 @@ var countdownRemaining = null;
 var countdownTimer = null;
 var LOG_MAX = 200;
 
+// Log stats counters
+var _lsCounts = { ok: 0, warn: 0, dl: 0, archive: 0, filter: 0, member: 0 };
+var _lsStartTime = null;
+var _lsTotal = 0;
+
 // ═══════════════════════════════════════════════════════════
 // Tab switching
 // ═══════════════════════════════════════════════════════════
@@ -825,7 +873,7 @@ async function fetchStatus() {
     // Channel progress
     if (data.total_channels > 0) {
         document.getElementById('channel-progress').textContent =
-            (data.current_channel_index || 0) + ' / ' + data.total_channels;
+            ((data.current_channel_index || 0) + 1) + ' / ' + data.total_channels;
     } else {
         document.getElementById('channel-progress').textContent = '--';
     }
@@ -961,6 +1009,9 @@ function appendLogLine(level, msg, ts) {
         tsStr = '';
     }
 
+    // ── Log stats tracking ──
+    trackLogStats(level, msg, ts);
+
     var div = document.createElement('div');
     div.className = 'log-line ' + level;
     div.textContent = (tsStr ? tsStr + ' ' : '') + msg;
@@ -979,8 +1030,79 @@ function appendLogLine(level, msg, ts) {
     }
 }
 
+function trackLogStats(level, msg, ts) {
+    // Detect round start
+    var m = msg.match(/═══ 开始下载轮次 ═══\s+共 (\d+) 个任务/);
+    if (m) {
+        _lsCounts = { ok: 0, warn: 0, dl: 0, archive: 0, filter: 0, member: 0 };
+        _lsTotal = parseInt(m[1]) || 0;
+        _lsStartTime = ts ? new Date(ts) : new Date();
+        updateLogStats();
+        return;
+    }
+
+    // Completed successfully
+    if (level === 'SUCCESS' && msg.indexOf('✔ 完成：') !== -1) {
+        _lsCounts.ok++;
+    }
+    // Completed with warning
+    if (level === 'WARNING' && msg.indexOf('⚠ 完成') !== -1) {
+        _lsCounts.warn++;
+    }
+    // Download file
+    if (msg.indexOf('[download] Destination:') !== -1) {
+        _lsCounts.dl++;
+    }
+    // Archive hit
+    if (msg.indexOf('has already been recorded in the archive') !== -1) {
+        _lsCounts.archive++;
+    }
+    // Filter skip
+    if (msg.indexOf('does not pass filter') !== -1) {
+        _lsCounts.filter++;
+    }
+    // Member-only blocked
+    if (msg.indexOf('Join this channel to get access') !== -1 ||
+        msg.indexOf('available to this channel\'s members') !== -1) {
+        _lsCounts.member++;
+    }
+
+    updateLogStats();
+}
+
+function updateLogStats() {
+    var s = document.getElementById('log-stats');
+    if (_lsTotal > 0) {
+        s.style.display = 'grid';
+        document.getElementById('ls-total').textContent = _lsTotal;
+        document.getElementById('ls-ok').textContent = _lsCounts.ok;
+        document.getElementById('ls-warn').textContent = _lsCounts.warn;
+        document.getElementById('ls-dl').textContent = _lsCounts.dl;
+        document.getElementById('ls-archive').textContent = _lsCounts.archive;
+        document.getElementById('ls-filter').textContent = _lsCounts.filter;
+        document.getElementById('ls-member').textContent = _lsCounts.member;
+        // Duration
+        if (_lsStartTime) {
+            var dur = Math.floor(((new Date() - _lsStartTime) / 1000));
+            var h = Math.floor(dur / 3600);
+            var mn = Math.floor((dur % 3600) / 60);
+            var sc = dur % 60;
+            var parts = [];
+            if (h > 0) parts.push(h + 'h');
+            if (mn > 0 || h > 0) parts.push(mn + 'm');
+            parts.push(sc + 's');
+            document.getElementById('ls-duration').textContent = parts.join('');
+        }
+    }
+}
+
 function clearLogs() {
     document.getElementById('log-area').innerHTML = '';
+    // Reset log stats
+    _lsCounts = { ok: 0, warn: 0, dl: 0, archive: 0, filter: 0, member: 0 };
+    _lsTotal = 0;
+    _lsStartTime = null;
+    updateLogStats();
 }
 
 // ═══════════════════════════════════════════════════════════

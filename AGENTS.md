@@ -50,6 +50,26 @@ YtDlpEngine._emit()
   → WebSocket → 浏览器 JS → logArea.appendChild()
 ```
 
+### 进度跟踪
+
+```
+YtDlpEngine.download_channel() → yt-dlp 子进程 stdout
+  → 正则提取 [download] X.X% → 构造 PROGRESS JSON
+  → LogBroadcaster.broadcast_sync("PROGRESS", json)
+  → DownloadManager._wrap_progress() Hook 拦截
+    ├── _update_progress() 更新 internal state (0-based index)
+    │     ├── _current_channel_index → /api/status 轮询
+    │     ├── _total_channels
+    │     └── _progress_percent
+    └── original broadcast → WebSocket → 前端 JS
+          ├── progress-fill / progress-text (百分比进度条)
+          └── channel-progress (频道进度: N / M)
+```
+
+前端 **两处消费进度**，须保持索引一致（均已 1-based 显示）：
+- `/api/status` 轮询（每秒）→ `((current_channel_index || 0) + 1) + ' / ' + total_channels`
+- WebSocket PROGRESS → `((channel_index || 0) + 1) + ' / ' + channel_total`
+
 ## 配置文件 (config.toml)
 
 应用启动时自动加载 `config/config.toml`。不存在时自动创建（含全部默认值 + 空频道列表）。损坏时自动降级重建（备份为 `.toml.bak`）。
@@ -142,6 +162,11 @@ is_first = false
 - 3 个标签页：控制面板 / 频道管理 / 设置
 - REST + WebSocket，无框架
 - 1 秒轮询 `/api/status`，WebSocket 推送日志
+- **日志可视化**（`#log-stats`）：在「清空日志」按钮下方，下载轮次运行期间自动展示 8 项统计指标：
+  - 总任务 / 已完成 / 有警告 / 耗时
+  - 📥 下载文件数 / 📦 归档跳过 / ⏭ 过滤跳过 / 🔒 会员限制
+  - 纯客户端统计，从 `appendLogLine()` 流中提取关键模式
+  - 清空日志时重置，新轮次开始时归零
 
 ## 修改注意事项
 
