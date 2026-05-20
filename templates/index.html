@@ -317,6 +317,30 @@
         .log-line.PROGRESS { color: var(--subtext); }
         .log-line.DETAIL { color: var(--overlay); }
 
+        /* ─── Issues panel (errors & warnings) ─── */
+        .log-issues {
+            background: #11111b;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 10px 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            display: none;
+        }
+        .log-issues .issues-header {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--subtext);
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+        .log-issues .issues-header .warn-count { color: var(--yellow); }
+        .log-issues .issues-header .error-count { color: var(--red); }
+
         /* ─── Log stats ─── */
         .log-stats {
             background: #11111b;
@@ -506,6 +530,10 @@
     </div>
 
     <div class="log-area" id="log-area"><div style="color:var(--subtext)">等待任务开始...</div></div>
+
+    <div class="log-issues" id="log-issues">
+        <div class="issues-header" id="issues-header"></div>
+    </div>
 </div>
 
 <!-- ═══════════════ Panel: 频道管理 ═══════════════ -->
@@ -718,6 +746,10 @@ var LOG_MAX = 200;
 var _lsCounts = { ok: 0, warn: 0, dl: 0, archive: 0, filter: 0, member: 0 };
 var _lsStartTime = null;
 var _lsTotal = 0;
+
+// Issues panel counters
+var _issuesCount = { warn: 0, error: 0 };
+var ISSUES_MAX = 200;
 
 // ═══════════════════════════════════════════════════════════
 // Tab switching
@@ -1028,6 +1060,28 @@ function appendLogLine(level, msg, ts) {
     if (document.getElementById('auto-scroll').checked) {
         area.scrollTop = area.scrollHeight;
     }
+
+    // ── Issues panel (warnings & errors) ──
+    if (level === 'WARNING' || level === 'ERROR') {
+        var ip = document.getElementById('log-issues');
+        ip.style.display = 'block';
+        var idiv = document.createElement('div');
+        idiv.className = 'log-line ' + level;
+        idiv.textContent = (tsStr ? tsStr + ' ' : '') + msg;
+        ip.appendChild(idiv);
+        while (ip.children.length > ISSUES_MAX + 1) {  // +1 for header
+            if (ip.children[1]) ip.removeChild(ip.children[1]);
+        }
+        if (level === 'WARNING') _issuesCount.warn++;
+        else _issuesCount.error++;
+        document.getElementById('issues-header').innerHTML =
+            '<span class="warn-count">⚠ ' + _issuesCount.warn + ' 个警告</span>'
+            + ' · '
+            + '<span class="error-count">✖ ' + _issuesCount.error + ' 个错误</span>';
+        if (document.getElementById('auto-scroll').checked) {
+            ip.scrollTop = ip.scrollHeight;
+        }
+    }
 }
 
 function trackLogStats(level, msg, ts) {
@@ -1038,6 +1092,11 @@ function trackLogStats(level, msg, ts) {
         _lsTotal = parseInt(m[1]) || 0;
         _lsStartTime = ts ? new Date(ts) : new Date();
         updateLogStats();
+        // Reset issues panel on new round
+        _issuesCount = { warn: 0, error: 0 };
+        var ip = document.getElementById('log-issues');
+        ip.innerHTML = '<div class="issues-header" id="issues-header"></div>';
+        ip.style.display = 'none';
         return;
     }
 
@@ -1103,6 +1162,11 @@ function clearLogs() {
     _lsTotal = 0;
     _lsStartTime = null;
     updateLogStats();
+    // Reset issues panel
+    _issuesCount = { warn: 0, error: 0 };
+    var ip = document.getElementById('log-issues');
+    ip.innerHTML = '<div class="issues-header" id="issues-header"></div>';
+    ip.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════

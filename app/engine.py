@@ -193,19 +193,19 @@ class YtDlpEngine:
                 elif "[download]" in line:
                     self._emit(line, "info")
                 elif "ERROR" in line or "error" in line:
-                    self._emit(line, "error")
+                    self._emit(f"[{folder}] {line}", "error")
                 elif "WARNING" in line:
-                    self._emit(line, "warn")
+                    self._emit(f"[{folder}] {line}", "warn")
                 else:
                     self._emit(line, "detail")
 
             process.wait()
 
         except FileNotFoundError:
-            self._emit("✖ 找不到 yt-dlp，请确认 /usr/local/bin/yt-dlp 已安装", "error")
+            self._emit(f"[{folder}] ✖ 找不到 yt-dlp，请确认 /usr/local/bin/yt-dlp 已安装", "error")
             return False
         except Exception as e:
-            self._emit(f"✖ 下载错误：{e}", "error")
+            self._emit(f"[{folder}] ✖ 下载错误：{e}", "error")
             return False
         finally:
             if timer is not None:
