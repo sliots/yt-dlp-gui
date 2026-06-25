@@ -23,7 +23,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "quiet_mode": False,
         "dateafter": "20000101",
         "download_archive": "archive.txt",
-        "filename_format": "[%(upload_date>%Y-%m-%d)s]%(title)s [%(id)s].%(ext)s",
+        "filename_format": "[%(upload_date>%Y-%m-%d)s]%(title).160B [%(id)s].%(ext)s",
         "first_run_timeout": 360,
         "normal_timeout": 60,
         "cookies_file_path": "/app/config/cookies.txt",

@@ -8,10 +8,32 @@ import signal
 import subprocess
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from app.websocket_manager import LogBroadcaster
+
+TITLE_BYTE_LIMIT = 160
+FALLBACK_TITLE_BYTE_LIMIT = 120
+TITLE_FIELD_RE = re.compile(r"%\(title\)(?:\.(\d+)B|s)")
+LONG_FILENAME_PATTERNS = (
+    "File name too long",
+    "Errno 36",
+    "unable to open for writing",
+)
+SAFE_TITLE_SUFFIX_RE = (
+    r"\s*(?:[【\[][^】\]]*(?:Ear\s*Cleaning|VTuber|for\s*Sleep|オノマトペ|心情代弁|"
+    r"吐息|耳ふー|指かき|タッピング)[^】\]]*[】\]])(?:\s*[【\[][^】\]]*[】\]])*\s*$"
+)
+
+
+@dataclass
+class DownloadAttemptResult:
+    ok: bool
+    returncode: int | None = None
+    filename_too_long: bool = False
+    stopped: bool = False
 
 
 class YtDlpEngine:
@@ -53,6 +75,30 @@ class YtDlpEngine:
         return self.general["dateafter"], self.limits["normal_limit"]
 
     @staticmethod
+    def _normalize_filename_template(
+        template: str,
+        *,
+        title_field: str = "title",
+        byte_limit: int = TITLE_BYTE_LIMIT,
+    ) -> str:
+        def _replace(match: re.Match[str]) -> str:
+            configured_limit = match.group(1)
+            limit = byte_limit
+            if configured_limit is not None:
+                limit = min(int(configured_limit), byte_limit)
+            return f"%({title_field}).{limit}B"
+
+        return TITLE_FIELD_RE.sub(_replace, template)
+
+    @staticmethod
+    def _template_uses_title(template: str) -> bool:
+        return TITLE_FIELD_RE.search(template) is not None
+
+    @staticmethod
+    def _line_has_filename_too_long(line: str) -> bool:
+        return any(pattern in line for pattern in LONG_FILENAME_PATTERNS)
+
+    @staticmethod
     def _parse_time(time_str: str) -> float:
         if time_str.endswith("s"):
             return float(time_str[:-1])
@@ -62,19 +108,19 @@ class YtDlpEngine:
             return float(time_str[:-1]) * 3600
         return float(time_str)
 
-    def download_channel(self, channel: dict, index: int, total: int) -> bool:
-        if self._stop_flag:
-            return False
-
+    def _build_command(
+        self,
+        channel: dict,
+        output_template: str,
+        *,
+        fallback_short_title: bool = False,
+    ) -> list[str]:
         folder = channel["folder_name"]
         yt_id = channel["youtube_id"]
         vid_type = channel["vid_type"]
         dl_type = channel["dl_type"]
         is_regex = channel.get("is_regex", False)
         is_first = channel.get("is_first", False)
-
-        label = f"{folder} ({yt_id}/{vid_type})"
-        self._emit(f"▶ [{index+1}/{total}] 开始下载：{label}", "info")
 
         download_format = self._get_download_format(dl_type)
         match_filter = self._get_match_filter(is_regex)
@@ -84,7 +130,7 @@ class YtDlpEngine:
         output_path = os.path.join(
             self.general["output_base_path"],
             folder,
-            self.general["filename_format"],
+            output_template,
         )
         url = f"https://www.youtube.com/@{yt_id}/{vid_type}"
 
@@ -95,6 +141,12 @@ class YtDlpEngine:
             "--newline",
             "--continue",
         ]
+
+        if fallback_short_title:
+            cmd.extend([
+                "--parse-metadata", "title:safe_title",
+                "--replace-in-metadata", "safe_title", SAFE_TITLE_SUFFIX_RE, "",
+            ])
 
         if self.general.get("quiet_mode", False):
             cmd.append("--quiet")
@@ -129,9 +181,21 @@ class YtDlpEngine:
             "-o", output_path,
             url,
         ])
+        return cmd
 
+    def _run_download_attempt(
+        self,
+        cmd: list[str],
+        *,
+        folder: str,
+        label: str,
+        index: int,
+        total: int,
+        is_first: bool,
+    ) -> DownloadAttemptResult:
         process = None
         timer: threading.Timer | None = None
+        filename_too_long = False
 
         try:
             process = subprocess.Popen(
@@ -168,7 +232,11 @@ class YtDlpEngine:
                     except ProcessLookupError:
                         pass
                     self._emit("⏹ 用户中断下载", "warn")
-                    return False
+                    return DownloadAttemptResult(
+                        ok=False,
+                        filename_too_long=filename_too_long,
+                        stopped=True,
+                    )
 
                 line = line.strip()
                 if not line:
@@ -188,6 +256,9 @@ class YtDlpEngine:
                         }),
                     )
 
+                if self._line_has_filename_too_long(line):
+                    filename_too_long = True
+
                 if "[download]" in line and "%" in line:
                     self._emit(line, "progress")
                 elif "[download]" in line:
@@ -203,18 +274,75 @@ class YtDlpEngine:
 
         except FileNotFoundError:
             self._emit(f"[{folder}] ✖ 找不到 yt-dlp，请确认 /usr/local/bin/yt-dlp 已安装", "error")
-            return False
+            return DownloadAttemptResult(ok=False, filename_too_long=filename_too_long)
         except Exception as e:
             self._emit(f"[{folder}] ✖ 下载错误：{e}", "error")
-            return False
+            return DownloadAttemptResult(ok=False, filename_too_long=filename_too_long)
         finally:
             if timer is not None:
                 timer.cancel()
 
-        if process and process.returncode == 0:
+        return DownloadAttemptResult(
+            ok=True,
+            returncode=process.returncode if process else None,
+            filename_too_long=filename_too_long,
+        )
+
+    def download_channel(self, channel: dict, index: int, total: int) -> bool:
+        if self._stop_flag:
+            return False
+
+        folder = channel["folder_name"]
+        yt_id = channel["youtube_id"]
+        vid_type = channel["vid_type"]
+        label = f"{folder} ({yt_id}/{vid_type})"
+        self._emit(f"▶ [{index+1}/{total}] 开始下载：{label}", "info")
+
+        base_template = self.general["filename_format"]
+        output_template = self._normalize_filename_template(base_template)
+        cmd = self._build_command(channel, output_template)
+        result = self._run_download_attempt(
+            cmd,
+            folder=folder,
+            label=label,
+            index=index,
+            total=total,
+            is_first=channel.get("is_first", False),
+        )
+
+        if result.stopped or not result.ok:
+            return False
+
+        if result.filename_too_long and self._template_uses_title(base_template):
+            self._emit(
+                "⚠ 检测到文件名过长，启用短文件名降级重试：移除末尾标签块并限制标题 120B",
+                "warn",
+            )
+            fallback_template = self._normalize_filename_template(
+                base_template,
+                title_field="safe_title",
+                byte_limit=FALLBACK_TITLE_BYTE_LIMIT,
+            )
+            fallback_cmd = self._build_command(
+                channel,
+                fallback_template,
+                fallback_short_title=True,
+            )
+            result = self._run_download_attempt(
+                fallback_cmd,
+                folder=folder,
+                label=label,
+                index=index,
+                total=total,
+                is_first=channel.get("is_first", False),
+            )
+            if result.stopped or not result.ok:
+                return False
+
+        if result.returncode == 0:
             self._emit(f"✔ 完成：{label}", "success")
-        elif process:
-            self._emit(f"⚠ 完成（返回码 {process.returncode}）：{label}", "warn")
+        elif result.returncode is not None:
+            self._emit(f"⚠ 完成（返回码 {result.returncode}）：{label}", "warn")
 
         sleep_sec = self._parse_time(self.general["sleep_time"])
         if sleep_sec > 0 and not self._stop_flag:

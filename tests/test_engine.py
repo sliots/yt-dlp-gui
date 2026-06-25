@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -60,6 +60,40 @@ def engine():
     loop.close()
 
 
+class FakeTimer:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def start(self):
+        pass
+
+    def cancel(self):
+        pass
+
+
+class FakeStdout:
+    def __init__(self, lines):
+        self._lines = iter(lines)
+
+    def readline(self):
+        return next(self._lines, "")
+
+
+class FakeProcess:
+    def __init__(self, lines, returncode):
+        self.stdout = FakeStdout(lines)
+        self.returncode = None
+        self.pid = 12345
+        self._final_returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self):
+        self.returncode = self._final_returncode
+        return self.returncode
+
+
 class TestDownloadFormat:
     def test_audio_format(self, engine):
         assert engine._get_download_format("audio") == "bestaudio"
@@ -98,6 +132,61 @@ class TestDownloadLimit:
         dateafter, limit = engine._get_download_limit(False)
         assert dateafter == "20000101"
         assert limit == 20
+
+
+class TestFilenameTemplate:
+    def test_unlimited_title_gets_default_byte_limit(self):
+        result = YtDlpEngine._normalize_filename_template("[%(title)s].%(ext)s")
+        assert result == "[%(title).160B].%(ext)s"
+
+    def test_large_title_limit_is_capped(self):
+        result = YtDlpEngine._normalize_filename_template("[%(title).300B].%(ext)s")
+        assert result == "[%(title).160B].%(ext)s"
+
+    def test_shorter_title_limit_is_preserved(self):
+        result = YtDlpEngine._normalize_filename_template("[%(title).100B].%(ext)s")
+        assert result == "[%(title).100B].%(ext)s"
+
+    def test_template_without_title_is_unchanged(self):
+        result = YtDlpEngine._normalize_filename_template("[%(id)s].%(ext)s")
+        assert result == "[%(id)s].%(ext)s"
+
+    def test_fallback_uses_safe_title_and_fallback_limit(self):
+        result = YtDlpEngine._normalize_filename_template(
+            "[%(title)s].%(ext)s",
+            title_field="safe_title",
+            byte_limit=120,
+        )
+        assert result == "[%(safe_title).120B].%(ext)s"
+
+
+class TestBuildCommand:
+    def test_normal_command_does_not_strip_title_tags(self, engine):
+        cmd = engine._build_command(
+            engine.channels[0],
+            YtDlpEngine._normalize_filename_template("[%(title)s].%(ext)s"),
+        )
+        assert "--replace-in-metadata" not in cmd
+        assert "--parse-metadata" not in cmd
+        output_template = cmd[cmd.index("-o") + 1]
+        assert output_template.endswith("[%(title).160B].%(ext)s")
+
+    def test_fallback_command_uses_safe_title_metadata(self, engine):
+        cmd = engine._build_command(
+            engine.channels[0],
+            YtDlpEngine._normalize_filename_template(
+                "[%(title)s].%(ext)s",
+                title_field="safe_title",
+                byte_limit=120,
+            ),
+            fallback_short_title=True,
+        )
+        assert "--parse-metadata" in cmd
+        assert "title:safe_title" in cmd
+        assert "--replace-in-metadata" in cmd
+        assert "safe_title" in cmd
+        output_template = cmd[cmd.index("-o") + 1]
+        assert output_template.endswith("[%(safe_title).120B].%(ext)s")
 
 
 class TestParseTime:
@@ -162,6 +251,41 @@ class TestEmit:
     def test_emit_defaults_to_info_level(self, engine):
         engine._emit("test")
         engine._broadcaster.broadcast_sync.assert_called_once_with("INFO", "test")
+
+
+class TestFilenameTooLongFallback:
+    def test_download_channel_retries_with_safe_title_after_filename_too_long(self, engine):
+        first = FakeProcess(
+            [
+                "ERROR: unable to open for writing: [Errno 36] File name too long: '/downloads/x.part'\n",
+            ],
+            returncode=1,
+        )
+        second = FakeProcess(["[download] Finished\n"], returncode=0)
+
+        with (
+            patch("app.engine.threading.Timer", FakeTimer),
+            patch("app.engine.subprocess.Popen", side_effect=[first, second]) as popen,
+        ):
+            assert engine.download_channel(engine.channels[0], 0, 1) is True
+
+        assert popen.call_count == 2
+
+        first_cmd = popen.call_args_list[0].args[0]
+        second_cmd = popen.call_args_list[1].args[0]
+
+        assert "--replace-in-metadata" not in first_cmd
+        assert "--parse-metadata" not in first_cmd
+        assert first_cmd[first_cmd.index("-o") + 1].endswith("[%(title).160B].%(ext)s")
+
+        assert "--parse-metadata" in second_cmd
+        assert "title:safe_title" in second_cmd
+        assert "--replace-in-metadata" in second_cmd
+        assert second_cmd[second_cmd.index("-o") + 1].endswith("[%(safe_title).120B].%(ext)s")
+        engine._broadcaster.broadcast_sync.assert_any_call(
+            "WARN",
+            "⚠ 检测到文件名过长，启用短文件名降级重试：移除末尾标签块并限制标题 120B",
+        )
 
 
 class TestRunAll:

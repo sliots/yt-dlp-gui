@@ -75,6 +75,7 @@ class TestDeepCopyConfig:
     def test_deepcopy_preserves_all_keys(self):
         copy_result = _deep_copy_config(DEFAULT_CONFIG)
         assert copy_result["general"]["output_base_path"] == "/downloads"
+        assert copy_result["general"]["filename_format"] == "[%(upload_date>%Y-%m-%d)s]%(title).160B [%(id)s].%(ext)s"
         assert copy_result["download_limits"]["normal_limit"] == 20
         assert copy_result["channels"] == []
 
@@ -174,8 +175,11 @@ class TestSaveAndLoad:
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-            parent = os.path.dirname(tmp)
-            while parent and parent != "/":
+            cleanup_root = os.path.abspath(os.path.join(tempfile.gettempdir(), "deep"))
+            parent = os.path.abspath(os.path.dirname(tmp))
+            while parent.startswith(cleanup_root):
                 if os.path.exists(parent) and not os.listdir(parent):
                     os.rmdir(parent)
+                if parent == cleanup_root:
+                    break
                 parent = os.path.dirname(parent)
