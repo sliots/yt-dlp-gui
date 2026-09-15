@@ -31,6 +31,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cookies_browser": "firefox",
         "cookies_browser_profile": "",
         "cookies_browser_container": "",
+        "po_token_enabled": True,
+        "po_token_base_url": "http://bgutil-provider:4416",
         "log_max_history": 200,
     },
     "download_limits": {

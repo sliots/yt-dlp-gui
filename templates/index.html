@@ -207,6 +207,7 @@
 
         /* ─── Inputs ─── */
         input[type="text"],
+        input[type="url"],
         input[type="number"] {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -218,6 +219,7 @@
             transition: border-color 0.2s;
         }
         input[type="text"]:focus,
+        input[type="url"]:focus,
         input[type="number"]:focus {
             border-color: var(--accent);
         }
@@ -625,6 +627,15 @@
             <option value="file">📁 文件</option>
             <option value="browser">🌐 浏览器</option>
         </select>
+    </div>
+
+    <div class="ctrl-row">
+        <label for="cfg-po_token_enabled">PO Token</label>
+        <input type="checkbox" id="cfg-po_token_enabled">
+    </div>
+    <div class="ctrl-row">
+        <label for="cfg-po_token_base_url">Token 服务地址</label>
+        <input type="url" id="cfg-po_token_base_url" style="flex:1;max-width:400px;">
     </div>
 
     <!-- 文件模式 -->
@@ -1400,6 +1411,8 @@ async function loadConfig() {
     setVal('cfg-cookies_browser', g.cookies_browser);
     setVal('cfg-cookies_browser_profile', g.cookies_browser_profile);
     setVal('cfg-cookies_browser_container', g.cookies_browser_container);
+    setVal('cfg-po_token_enabled', g.po_token_enabled !== false, true);
+    setVal('cfg-po_token_base_url', g.po_token_base_url || 'http://bgutil-provider:4416');
     toggleCookieSection();
     setVal('cfg-sleep_requests', g.sleep_requests);
     setVal('cfg-sleep_time', g.sleep_time);
@@ -1457,6 +1470,8 @@ async function saveSettings() {
         cookies_browser: document.getElementById('cfg-cookies_browser').value,
         cookies_browser_profile: document.getElementById('cfg-cookies_browser_profile').value,
         cookies_browser_container: document.getElementById('cfg-cookies_browser_container').value,
+        po_token_enabled: document.getElementById('cfg-po_token_enabled').checked,
+        po_token_base_url: document.getElementById('cfg-po_token_base_url').value.trim() || 'http://bgutil-provider:4416',
         log_max_history: parseInt(document.getElementById('cfg-log_max_history').value) || 200,
     };
 

@@ -92,6 +92,8 @@ cookies_file_path = "/app/config/cookies.txt"
 cookies_browser = "firefox"
 cookies_browser_profile = ""
 cookies_browser_container = ""
+po_token_enabled = true
+po_token_base_url = "http://bgutil-provider:4416"
 log_max_history = 200
 
 [download_limits]
@@ -112,6 +114,7 @@ is_first = false
 
 - **yt-dlp**: nightly 独立二进制 `/usr/local/bin/yt-dlp`（来源 `yt-dlp-nightly-builds`，内置 curl_cffi）
 - **Deno**: `/usr/local/bin/deno`（YouTube JS challenge）
+- **PO Token**: bgutil 2.0.0 插件 ZIP 位于 `/opt/yt-dlp-plugins/`，Compose 内置同版本 `bgutil-provider:4416` HTTP 服务（不发布宿主机端口）。默认保留 Cookies 并使用 `web_creator`，可在设置中关闭或更改服务地址。插件和服务版本须一起更新，详见 `docs/po-token.md`。
 - **ffmpeg**: apt 安装 `/usr/bin/ffmpeg`
 - **Cookie**: 支持两种模式 — 
   - `file`：通过 API 上传 `cookies.txt`，`--cookies <path>`
@@ -132,6 +135,7 @@ is_first = false
 | 配置项 | 即时生效 | 需重启 |
 |--------|----------|--------|
 | `cookies_source` / `cookies_browser` | ✅ | |
+| `po_token_enabled` / `po_token_base_url` | ✅ (下次下载轮次) | |
 | `sleep_requests` / `sleep_time` / `wait_time_minutes` | ✅ | |
 | 频道列表 (CRUD) | ✅ | |
 | `normal_limit` / `first_run_limit` | ✅ | |

@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    image: yt-dlp-gui:local
+    ports:
+      - "55595:8080"
+    volumes:
+      - /mnt/c/data/yt-dlp-gui/config:/app/config
+      - /mnt/c/data/yt-dlp-gui/downloads:/downloads
+      - /mnt/c/Users/game7/AppData/Roaming/Mozilla/Firefox/Profiles/yfhavfk0.default-release:/firefox-profile:ro
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      bgutil-provider:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 2g
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.0
+    init: true
+    restart: unless-stopped
+    # Internal Compose network only; do not publish this unauthenticated service.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4416/ping').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

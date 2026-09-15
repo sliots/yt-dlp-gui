@@ -13,6 +13,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Match the provider service version in docker-compose.yml.
+ARG BGUTIL_VERSION=2.0.0
+RUN mkdir -p /opt/yt-dlp-plugins \
+    && curl -fsSL "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/${BGUTIL_VERSION}/bgutil-ytdlp-pot-provider.zip" \
+       -o /opt/yt-dlp-plugins/bgutil-ytdlp-pot-provider.zip
+
 # ── 高频变更层 ──
 COPY . .
 

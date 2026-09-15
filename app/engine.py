@@ -136,7 +136,6 @@ class YtDlpEngine:
 
         cmd = [
             "/usr/local/bin/yt-dlp",
-            "--no-warnings",
             "--no-abort-on-error",
             "--newline",
             "--continue",
@@ -165,6 +164,16 @@ class YtDlpEngine:
         else:
             cookies_path = self.general.get("cookies_file_path", "/app/config/cookies.txt")
             cmd.extend(["--cookies", cookies_path])
+
+        if self.general.get("po_token_enabled", True):
+            base_url = self.general.get(
+                "po_token_base_url", "http://bgutil-provider:4416",
+            ).rstrip("/")
+            cmd.extend([
+                "--plugin-dirs", "/opt/yt-dlp-plugins",
+                "--extractor-args", "youtube:player_client=web_creator",
+                "--extractor-args", f"youtubepot-bgutilhttp:base_url={base_url}",
+            ])
 
         cmd.extend([
             "--dateafter", dateafter,

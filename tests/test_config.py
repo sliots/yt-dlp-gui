@@ -81,6 +81,14 @@ class TestDeepCopyConfig:
 
 
 class TestSaveAndLoad:
+    def test_old_config_gets_po_token_defaults(self, tmp_path):
+        path = tmp_path / "config.toml"
+        save_config({"general": {"cookies_source": "browser"}}, path)
+        general = load_config(path)["general"]
+        assert general["cookies_source"] == "browser"
+        assert general["po_token_enabled"] is True
+        assert general["po_token_base_url"] == "http://bgutil-provider:4416"
+
     def test_save_and_load_roundtrip(self):
         config = {
             "general": {"output_base_path": "/tmp"},

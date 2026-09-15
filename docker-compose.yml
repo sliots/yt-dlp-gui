@@ -16,8 +16,28 @@ services:
       # - /host/yt-dlp:/usr/local/bin/yt-dlp
     environment:
       - TZ=Asia/Shanghai
+    depends_on:
+      bgutil-provider:
+        condition: service_healthy
     restart: unless-stopped
     mem_limit: 2g                       # 防止 Deno stdin hang（issue #16148）
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.0
+    init: true
+    restart: unless-stopped
+    # Internal Compose network only; this service has no authentication.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4416/ping').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     logging:
       driver: "json-file"
       options:

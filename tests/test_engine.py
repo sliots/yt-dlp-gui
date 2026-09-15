@@ -161,6 +161,35 @@ class TestFilenameTemplate:
 
 
 class TestBuildCommand:
+    @pytest.mark.parametrize("fallback", [False, True])
+    @pytest.mark.parametrize("source", ["file", "browser"])
+    def test_po_token_preserves_login(self, engine, source, fallback):
+        engine.general.update({
+            "cookies_source": source,
+            "cookies_browser": "firefox",
+            "cookies_browser_profile": "/firefox-profile",
+            "po_token_base_url": "http://provider:4416/",
+        })
+        cmd = engine._build_command(
+            engine.channels[0], "%(id)s.%(ext)s", fallback_short_title=fallback,
+        )
+        assert "youtube:player_client=web_creator" in cmd
+        assert "youtubepot-bgutilhttp:base_url=http://provider:4416" in cmd
+        assert cmd[cmd.index("--plugin-dirs") + 1] == "/opt/yt-dlp-plugins"
+        assert "youtubetab:skip=authcheck" in cmd
+        assert "--no-warnings" not in cmd
+        if source == "file":
+            assert cmd[cmd.index("--cookies") + 1] == "/app/config/cookies.txt"
+        else:
+            assert cmd[cmd.index("--cookies-from-browser") + 1] == "firefox:/firefox-profile"
+
+    def test_po_token_can_be_disabled(self, engine):
+        engine.general["po_token_enabled"] = False
+        cmd = engine._build_command(engine.channels[0], "%(id)s.%(ext)s")
+        assert not any("web_creator" in arg or "bgutilhttp" in arg for arg in cmd)
+        assert "--plugin-dirs" not in cmd
+        assert "--cookies" in cmd
+
     def test_normal_command_does_not_strip_title_tags(self, engine):
         cmd = engine._build_command(
             engine.channels[0],

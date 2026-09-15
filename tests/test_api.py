@@ -169,6 +169,35 @@ class TestChannels:
 
 
 class TestConfig:
+    def test_po_token_settings_round_trip(self, client, base_config, tmp_path):
+        body = {
+            **base_config["general"],
+            **base_config["download_limits"],
+            "po_token_enabled": False,
+            "po_token_base_url": "http://custom-provider:4416",
+        }
+        from app.config import load_config, save_config
+        path = tmp_path / "config.toml"
+        with patch("app.config.save_config", side_effect=lambda config: save_config(config, path)):
+            response = client.put("/api/config", json=body)
+        assert response.status_code == 200
+        general = client.get("/api/config").json()["general"]
+        assert general["po_token_enabled"] is False
+        assert general["po_token_base_url"] == "http://custom-provider:4416"
+        assert load_config(path)["general"]["po_token_base_url"] == general["po_token_base_url"]
+
+    @pytest.mark.parametrize("url", [
+        "file:///tmp/provider", "http://host;other=value",
+        "http://host,other", "http://host\nother",
+    ])
+    def test_invalid_po_token_url(self, client, base_config, url):
+        body = {
+            **base_config["general"],
+            **base_config["download_limits"],
+            "po_token_base_url": url,
+        }
+        assert client.put("/api/config", json=body).status_code == 422
+
     def test_get_config(self, client):
         r = client.get("/api/config")
         assert r.status_code == 200

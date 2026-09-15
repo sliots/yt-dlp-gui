@@ -53,6 +53,12 @@ class ConfigUpdate(BaseModel):
     cookies_browser: str = "firefox"
     cookies_browser_profile: str = ""
     cookies_browser_container: str = ""
+    po_token_enabled: bool = True
+    po_token_base_url: str = Field(
+        default="http://bgutil-provider:4416",
+        pattern=r"^https?://[^\s;,?#]+$",
+        max_length=2048,
+    )
     log_max_history: int = Field(ge=10, le=9999, default=200)
 
 
@@ -136,6 +142,7 @@ def build_router(manager: DownloadManager, config: dict) -> APIRouter:
                        "filename_format", "first_run_timeout", "normal_timeout",
                        "cookies_file_path", "cookies_source", "cookies_browser",
                        "cookies_browser_profile", "cookies_browser_container",
+                       "po_token_enabled", "po_token_base_url",
                        "log_max_history"):
             g[field] = getattr(body, field)
         l = config.setdefault("download_limits", {})
