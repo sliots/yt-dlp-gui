@@ -10,7 +10,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from app.websocket_manager import LogBroadcaster
 
@@ -26,6 +26,10 @@ SAFE_TITLE_SUFFIX_RE = (
     r"\s*(?:[【\[][^】\]]*(?:Ear\s*Cleaning|VTuber|for\s*Sleep|オノマトペ|心情代弁|"
     r"吐息|耳ふー|指かき|タッピング)[^】\]]*[】\]])(?:\s*[【\[][^】\]]*[】\]])*\s*$"
 )
+MEMBER_ONLY_PATTERNS = (
+    "Join this channel to get access",
+    "available to this channel's members",
+)
 
 
 @dataclass
@@ -34,26 +38,71 @@ class DownloadAttemptResult:
     returncode: int | None = None
     filename_too_long: bool = False
     stopped: bool = False
+    warning: bool = False
+    hard_errors: int = 0
+    member_skipped: int = 0
 
 
 class YtDlpEngine:
-    def __init__(self, config: dict, broadcaster: LogBroadcaster):
+    def __init__(
+        self,
+        config: dict,
+        broadcaster: LogBroadcaster,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    ):
         self._config = config
         self.general = config["general"]
         self.limits = config["download_limits"]
         self.channels = copy.deepcopy(config.get("channels", []))
         self._broadcaster = broadcaster
+        self._progress_callback = progress_callback
         self._stop_flag = False
         self._progress_re = re.compile(r"\[download\]\s+(\d+\.?\d*)%")
+        self._stats_lock = threading.Lock()
+        self._stats = {
+            "total_channels": 0,
+            "processed_channels": 0,
+            "completed_channels": 0,
+            "warning_channels": 0,
+            "downloaded_files": 0,
+            "archive_skipped": 0,
+            "filtered_skipped": 0,
+            "member_skipped": 0,
+            "hard_errors": 0,
+            "stopped": False,
+        }
+        self._last_channel_warning = False
 
     def request_stop(self) -> None:
         self._stop_flag = True
+        self._set_stat("stopped", True)
 
     def reset_stop(self) -> None:
         self._stop_flag = False
 
     def _emit(self, msg: str, level: str = "info") -> None:
-        self._broadcaster.broadcast_sync(level.upper(), msg)
+        level = level.upper()
+        self._broadcaster.broadcast_sync("WARNING" if level == "WARN" else level, msg)
+
+    def _increment_stat(self, name: str, amount: int = 1) -> None:
+        with self._stats_lock:
+            self._stats[name] += amount
+
+    def _set_stat(self, name: str, value: Any) -> None:
+        with self._stats_lock:
+            self._stats[name] = value
+
+    def get_run_stats(self) -> dict[str, Any]:
+        with self._stats_lock:
+            return dict(self._stats)
+
+    def _report_progress(self, progress: dict[str, Any]) -> None:
+        if self._progress_callback is not None:
+            try:
+                self._progress_callback(progress)
+            except Exception:
+                pass
+        self._broadcaster.broadcast_sync("PROGRESS", json.dumps(progress))
 
     def _get_download_format(self, dl_type: str) -> str:
         formats = {
@@ -179,7 +228,7 @@ class YtDlpEngine:
             "--dateafter", dateafter,
             "--download-archive", archive_path,
             "--embed-metadata",
-            "--ffmpeg-location", "/usr/bin/ffmpeg",
+            "--ffmpeg-location", "/opt/ffmpeg-wrapper",
             "--match-filter", match_filter,
             "--proxy", self.general["proxy_url"],
             "--sleep-requests", str(self.general["sleep_requests"]),
@@ -205,6 +254,10 @@ class YtDlpEngine:
         process = None
         timer: threading.Timer | None = None
         filename_too_long = False
+        warning = False
+        hard_errors = 0
+        member_skipped = 0
+        timed_out = threading.Event()
 
         try:
             process = subprocess.Popen(
@@ -226,6 +279,7 @@ class YtDlpEngine:
 
             def _on_timeout() -> None:
                 if process is not None and process.poll() is None:
+                    timed_out.set()
                     try:
                         os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                     except ProcessLookupError:
@@ -240,11 +294,14 @@ class YtDlpEngine:
                         os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                     except ProcessLookupError:
                         pass
-                    self._emit("⏹ 用户中断下载", "warn")
+                    self._emit("⏹ 用户中断下载", "warning")
                     return DownloadAttemptResult(
                         ok=False,
                         filename_too_long=filename_too_long,
                         stopped=True,
+                        warning=warning,
+                        hard_errors=hard_errors,
+                        member_skipped=member_skipped,
                     )
 
                 line = line.strip()
@@ -254,39 +311,69 @@ class YtDlpEngine:
                 progress_match = self._progress_re.search(line)
                 if progress_match:
                     percent = float(progress_match.group(1))
-                    self._broadcaster.broadcast_sync(
-                        "PROGRESS",
-                        json.dumps({
-                            "type": "progress",
-                            "percent": percent,
-                            "channel_index": index,
-                            "channel_total": total,
-                            "channel_label": label,
-                        }),
-                    )
+                    progress = {
+                        "type": "progress",
+                        "percent": percent,
+                        "channel_index": index,
+                        "channel_total": total,
+                        "channel_label": label,
+                    }
+                    self._report_progress(progress)
+                    continue
 
                 if self._line_has_filename_too_long(line):
                     filename_too_long = True
 
-                if "[download]" in line and "%" in line:
-                    self._emit(line, "progress")
+                if any(pattern in line for pattern in MEMBER_ONLY_PATTERNS):
+                    member_skipped += 1
+                    self._increment_stat("member_skipped")
+                    self._emit(f"[{folder}] {line}", "skip")
+                elif self._line_has_filename_too_long(line):
+                    warning = True
+                    self._emit(f"[{folder}] {line}", "warning")
+                elif "[download] Destination:" in line:
+                    self._increment_stat("downloaded_files")
+                    self._emit(line, "info")
+                elif "has already been recorded in the archive" in line:
+                    self._increment_stat("archive_skipped")
+                    self._emit(line, "info")
+                elif "does not pass filter" in line:
+                    self._increment_stat("filtered_skipped")
+                    self._emit(line, "info")
                 elif "[download]" in line:
                     self._emit(line, "info")
                 elif "ERROR" in line or "error" in line:
+                    warning = True
+                    hard_errors += 1
+                    self._increment_stat("hard_errors")
                     self._emit(f"[{folder}] {line}", "error")
                 elif "WARNING" in line:
-                    self._emit(f"[{folder}] {line}", "warn")
+                    warning = True
+                    self._emit(f"[{folder}] {line}", "warning")
                 else:
                     self._emit(line, "detail")
 
             process.wait()
+            if timed_out.is_set():
+                warning = True
+                hard_errors += 1
+                self._increment_stat("hard_errors")
+                self._emit(f"[{folder}] ✖ 下载超时，已终止 yt-dlp", "error")
 
         except FileNotFoundError:
+            self._increment_stat("hard_errors")
             self._emit(f"[{folder}] ✖ 找不到 yt-dlp，请确认 /usr/local/bin/yt-dlp 已安装", "error")
-            return DownloadAttemptResult(ok=False, filename_too_long=filename_too_long)
+            return DownloadAttemptResult(
+                ok=False, filename_too_long=filename_too_long,
+                warning=True, hard_errors=1,
+            )
         except Exception as e:
+            self._increment_stat("hard_errors")
             self._emit(f"[{folder}] ✖ 下载错误：{e}", "error")
-            return DownloadAttemptResult(ok=False, filename_too_long=filename_too_long)
+            return DownloadAttemptResult(
+                ok=False, filename_too_long=filename_too_long,
+                warning=True, hard_errors=1,
+            )
         finally:
             if timer is not None:
                 timer.cancel()
@@ -295,9 +382,13 @@ class YtDlpEngine:
             ok=True,
             returncode=process.returncode if process else None,
             filename_too_long=filename_too_long,
+            warning=warning,
+            hard_errors=hard_errors,
+            member_skipped=member_skipped,
         )
 
     def download_channel(self, channel: dict, index: int, total: int) -> bool:
+        self._last_channel_warning = False
         if self._stop_flag:
             return False
 
@@ -305,6 +396,13 @@ class YtDlpEngine:
         yt_id = channel["youtube_id"]
         vid_type = channel["vid_type"]
         label = f"{folder} ({yt_id}/{vid_type})"
+        self._report_progress({
+            "type": "progress",
+            "percent": 0.0,
+            "channel_index": index,
+            "channel_total": total,
+            "channel_label": label,
+        })
         self._emit(f"▶ [{index+1}/{total}] 开始下载：{label}", "info")
 
         base_template = self.general["filename_format"]
@@ -320,12 +418,14 @@ class YtDlpEngine:
         )
 
         if result.stopped or not result.ok:
+            self._last_channel_warning = result.warning
             return False
 
         if result.filename_too_long and self._template_uses_title(base_template):
+            first_result = result
             self._emit(
                 "⚠ 检测到文件名过长，启用短文件名降级重试：移除末尾标签块并限制标题 120B",
-                "warn",
+                "warning",
             )
             fallback_template = self._normalize_filename_template(
                 base_template,
@@ -345,13 +445,22 @@ class YtDlpEngine:
                 total=total,
                 is_first=channel.get("is_first", False),
             )
+            result.warning = result.warning or first_result.warning
+            result.hard_errors += first_result.hard_errors
+            result.member_skipped += first_result.member_skipped
             if result.stopped or not result.ok:
+                self._last_channel_warning = True
                 return False
 
         if result.returncode == 0:
             self._emit(f"✔ 完成：{label}", "success")
+        elif result.member_skipped and not result.hard_errors and not result.warning:
+            self._emit(f"✔ 完成（会员内容已跳过）：{label}", "success")
         elif result.returncode is not None:
-            self._emit(f"⚠ 完成（返回码 {result.returncode}）：{label}", "warn")
+            result.warning = True
+            self._emit(f"⚠ 完成（返回码 {result.returncode}）：{label}", "warning")
+
+        self._last_channel_warning = result.warning or result.hard_errors > 0
 
         sleep_sec = self._parse_time(self.general["sleep_time"])
         if sleep_sec > 0 and not self._stop_flag:
@@ -371,8 +480,9 @@ class YtDlpEngine:
             return True
 
         active_channels = [ch for ch in self.channels if ch.get("enabled", True)]
+        self._set_stat("total_channels", len(active_channels))
         if not active_channels:
-            self._emit("⚠ 没有启用的频道", "warn")
+            self._emit("⚠ 没有启用的频道", "warning")
             return True
 
         ordered_channels = sorted(
@@ -383,8 +493,16 @@ class YtDlpEngine:
         self._emit(f"═══ 开始下载轮次 ═══  共 {total} 个任务", "info")
 
         for i, ch in enumerate(ordered_channels):
-            if not self.download_channel(ch, i, total):
-                self._emit("═══ 下载已中断 ═══", "warn")
+            ok = self.download_channel(ch, i, total)
+            self._increment_stat("processed_channels")
+            if self._last_channel_warning:
+                self._increment_stat("warning_channels")
+            elif ok:
+                self._increment_stat("completed_channels")
+            if not ok:
+                if self._stop_flag:
+                    self._set_stat("stopped", True)
+                self._emit("═══ 下载已中断 ═══", "warning")
                 return False
 
         self._emit(
@@ -394,4 +512,4 @@ class YtDlpEngine:
         return True
 
     def get_channel_state(self) -> list[dict]:
-        return self.channels
+        return copy.deepcopy(self.channels)

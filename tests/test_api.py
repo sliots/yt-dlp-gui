@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,9 +41,11 @@ def base_config():
 
 
 @pytest.fixture
-def manager(base_config):
+def manager(base_config, tmp_path):
     mgr = MagicMock(spec=DownloadManager)
     mgr.status = {
+        "state": "idle",
+        "active": False,
         "running": False,
         "mode": None,
         "current_channel_index": 0,
@@ -50,7 +53,11 @@ def manager(base_config):
         "current_channel_label": "",
         "progress_percent": 0.0,
         "next_round_seconds": 0,
+        "current_run": None,
+        "last_run": None,
     }
+    mgr.config_lock = threading.RLock()
+    mgr.config_path = tmp_path / "config.toml"
     mgr.start_once = AsyncMock(return_value={"ok": True})
     mgr.start_loop = AsyncMock(return_value={"ok": True})
     mgr.start_first_only = AsyncMock(return_value={"ok": True})
@@ -124,6 +131,49 @@ class TestChannels:
         })
         assert r.status_code == 200
         assert r.json()["ok"] is True
+        assert r.json()["channels"][0]["youtube_id"] == "test"
+        assert r.json()["channels"][0]["channel_id"]
+
+    def test_client_cannot_set_channel_id(self, client):
+        r = client.post("/api/channels", json={
+            "channel_id": "client-controlled",
+            "folder_name": "TestChannel",
+            "youtube_id": "test",
+        })
+        assert r.json()["channels"][0]["channel_id"] != "client-controlled"
+
+    @pytest.mark.parametrize("youtube_id", ["test", " TEST ", "@TeSt"])
+    def test_duplicate_channel_returns_409(self, client, youtube_id):
+        client.post("/api/channels", json={
+            "folder_name": "First", "youtube_id": "@Test", "enabled": False,
+        })
+        r = client.post("/api/channels", json={
+            "folder_name": "Second", "youtube_id": youtube_id, "enabled": True,
+        })
+        assert r.status_code == 409
+        assert "videos" in r.json()["detail"]
+
+    def test_same_channel_different_video_type_is_allowed(self, client):
+        client.post("/api/channels", json={
+            "folder_name": "Videos", "youtube_id": "same", "vid_type": "videos",
+        })
+        r = client.post("/api/channels", json={
+            "folder_name": "Streams", "youtube_id": "@SAME", "vid_type": "streams",
+        })
+        assert r.status_code == 200
+
+    def test_edit_and_delete_channel_by_id(self, client):
+        added = client.post("/api/channels", json={
+            "folder_name": "Before", "youtube_id": "test",
+        }).json()["channels"][0]
+        channel_id = added["channel_id"]
+        edited = client.put(f"/api/channels/id/{channel_id}", json={
+            "folder_name": "After", "youtube_id": "test",
+        })
+        assert edited.status_code == 200
+        assert edited.json()["channels"][0]["folder_name"] == "After"
+        assert edited.json()["channels"][0]["channel_id"] == channel_id
+        assert client.delete(f"/api/channels/id/{channel_id}").json()["channels"] == []
 
     def test_add_channel_validates_required_fields(self, client):
         r = client.post("/api/channels", json={"folder_name": ""})
@@ -178,7 +228,7 @@ class TestConfig:
         }
         from app.config import load_config, save_config
         path = tmp_path / "config.toml"
-        with patch("app.config.save_config", side_effect=lambda config: save_config(config, path)):
+        with patch("app.config.save_config", side_effect=lambda config, *_: save_config(config, path)):
             response = client.put("/api/config", json=body)
         assert response.status_code == 200
         general = client.get("/api/config").json()["general"]

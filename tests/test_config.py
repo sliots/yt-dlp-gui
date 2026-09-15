@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from uuid import UUID
 
 import pytest
 
@@ -11,6 +12,7 @@ from app.config import (
     _deep_copy_config,
     _deep_merge,
     _ensure_channel_defaults,
+    channel_unique_key,
     load_config,
     save_config,
 )
@@ -51,6 +53,7 @@ class TestEnsureChannelDefaults:
         assert result["enabled"] is True
         assert result["is_regex"] is False
         assert result["is_first"] is True
+        assert result["youtube_id"] == ""
 
     def test_overwrites_existing_fields(self):
         result = _ensure_channel_defaults({"folder_name": "a", "is_first": False})
@@ -105,6 +108,8 @@ class TestSaveAndLoad:
             assert loaded["download_limits"]["normal_limit"] == 42
             assert len(loaded["channels"]) == 1
             assert loaded["channels"][0]["folder_name"] == "ch1"
+            assert loaded["channels"][0]["youtube_id"] == "test"
+            UUID(loaded["channels"][0]["channel_id"])
             assert loaded["channels"][0]["enabled"] is True
         finally:
             if os.path.exists(tmp):
@@ -191,3 +196,66 @@ class TestSaveAndLoad:
                 if parent == cleanup_root:
                     break
                 parent = os.path.dirname(parent)
+
+    def test_migrates_duplicate_channels_once(self, tmp_path, caplog):
+        path = tmp_path / "config.toml"
+        save_config({
+            "channels": [
+                {
+                    "folder_name": "Disabled",
+                    "youtube_id": " @Example ",
+                    "vid_type": "videos",
+                    "enabled": False,
+                    "is_first": True,
+                },
+                {
+                    "folder_name": "Enabled",
+                    "youtube_id": "example",
+                    "vid_type": "videos",
+                    "enabled": True,
+                    "is_first": False,
+                },
+                {
+                    "folder_name": "Streams",
+                    "youtube_id": "EXAMPLE",
+                    "vid_type": "streams",
+                },
+            ],
+        }, path)
+
+        with caplog.at_level("WARNING", logger="yt_dlp_gui"):
+            loaded = load_config(path)
+
+        assert len(loaded["channels"]) == 2
+        videos = loaded["channels"][0]
+        assert videos["folder_name"] == "Enabled"
+        assert videos["enabled"] is True
+        assert videos["is_first"] is True
+        assert videos["youtube_id"] == "example"
+        assert (tmp_path / "config.toml.pre-v2.0.14.bak").exists()
+        assert "合并 1 条重复记录" in caplog.text
+
+        ids = [channel["channel_id"] for channel in loaded["channels"]]
+        reloaded = load_config(path)
+        assert [channel["channel_id"] for channel in reloaded["channels"]] == ids
+
+    def test_duplicate_channel_ids_are_replaced(self, tmp_path):
+        path = tmp_path / "config.toml"
+        duplicate_id = "c21974f5-2a9e-4c4e-b6ed-548b456d6301"
+        save_config({
+            "channels": [
+                {"channel_id": duplicate_id, "folder_name": "A", "youtube_id": "a"},
+                {"channel_id": duplicate_id, "folder_name": "B", "youtube_id": "b"},
+            ],
+        }, path)
+        loaded = load_config(path)
+        ids = [channel["channel_id"] for channel in loaded["channels"]]
+        assert ids[0] == duplicate_id
+        assert ids[1] != duplicate_id
+        assert len(set(ids)) == 2
+
+
+def test_channel_unique_key_normalizes_case_space_and_at():
+    assert channel_unique_key({"youtube_id": " @TeSt ", "vid_type": "videos"}) == (
+        "test", "videos",
+    )

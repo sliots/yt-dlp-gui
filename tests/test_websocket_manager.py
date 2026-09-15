@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 import pytest
@@ -69,6 +70,37 @@ class TestBroadcastSync:
     def test_no_clients_does_not_raise(self):
         broadcaster = LogBroadcaster()
         broadcaster.broadcast_sync("ERROR", "test")
+
+    def test_warn_is_normalized_and_progress_is_not_historic(self):
+        broadcaster = LogBroadcaster()
+        broadcaster.broadcast_sync("WARN", "warning")
+        broadcaster.broadcast_sync("PROGRESS", '{"percent": 50}')
+        assert len(broadcaster._history) == 1
+        assert broadcaster._history[0]["level"] == "WARNING"
+
+    def test_jsonl_redacts_tokens_and_excludes_progress(self, tmp_path):
+        path = tmp_path / "download.log"
+        broadcaster = LogBroadcaster(log_path=path)
+        broadcaster.broadcast_sync(
+            "INFO", 'poToken=secret integrityToken:"also-secret"',
+        )
+        broadcaster.broadcast_sync("PROGRESS", "poToken=progress-secret")
+        broadcaster._file_handler.close()
+
+        entries = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        assert len(entries) == 1
+        assert entries[0]["msg"] == 'poToken=[REDACTED] integrityToken:"[REDACTED]"'
+        assert "secret" not in entries[0]["msg"]
+        assert broadcaster._history[0]["msg"] == entries[0]["msg"]
+
+    def test_rotates_log_and_keeps_three_backups(self, tmp_path):
+        path = tmp_path / "download.log"
+        broadcaster = LogBroadcaster(log_path=path, max_bytes=200, backup_count=3)
+        for index in range(20):
+            broadcaster.broadcast_sync("INFO", f"{index}:" + "x" * 100)
+        broadcaster._file_handler.close()
+        backups = list(tmp_path.glob("download.log.*"))
+        assert 1 <= len(backups) <= 3
 
 
 class TestWSLogHandler:

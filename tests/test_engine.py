@@ -178,6 +178,7 @@ class TestBuildCommand:
         assert cmd[cmd.index("--plugin-dirs") + 1] == "/opt/yt-dlp-plugins"
         assert "youtubetab:skip=authcheck" in cmd
         assert "--no-warnings" not in cmd
+        assert cmd[cmd.index("--ffmpeg-location") + 1] == "/opt/ffmpeg-wrapper"
         if source == "file":
             assert cmd[cmd.index("--cookies") + 1] == "/app/config/cookies.txt"
         else:
@@ -312,7 +313,7 @@ class TestFilenameTooLongFallback:
         assert "--replace-in-metadata" in second_cmd
         assert second_cmd[second_cmd.index("-o") + 1].endswith("[%(safe_title).120B].%(ext)s")
         engine._broadcaster.broadcast_sync.assert_any_call(
-            "WARN",
+            "WARNING",
             "⚠ 检测到文件名过长，启用短文件名降级重试：移除末尾标签块并限制标题 120B",
         )
 
@@ -328,7 +329,7 @@ class TestRunAll:
             {"folder_name": "B", "enabled": False, "is_first": False},
         ]
         assert engine.run_all() is True
-        engine._broadcaster.broadcast_sync.assert_any_call("WARN", "⚠ 没有启用的频道")
+        engine._broadcaster.broadcast_sync.assert_any_call("WARNING", "⚠ 没有启用的频道")
 
     def test_sorts_first_channels_first(self, engine):
         engine.channels = [
@@ -352,4 +353,75 @@ class TestGetChannelState:
     def test_deepcopy_isolation(self, engine):
         state1 = engine.get_channel_state()
         state2 = engine.get_channel_state()
-        assert state1 is state2
+        assert state1 is not state2
+        state1[0]["folder_name"] = "changed"
+        assert state2[0]["folder_name"] == "TestChan"
+
+
+class TestRunStatistics:
+    def test_member_only_is_skip_and_channel_completes(self, engine):
+        engine.channels = [engine.channels[0]]
+        process = FakeProcess([
+            "ERROR: [youtube] abc: Join this channel to get access to members-only content\n",
+        ], returncode=1)
+        with (
+            patch("app.engine.threading.Timer", FakeTimer),
+            patch("app.engine.subprocess.Popen", return_value=process),
+        ):
+            assert engine.run_all() is True
+
+        stats = engine.get_run_stats()
+        assert stats["member_skipped"] == 1
+        assert stats["hard_errors"] == 0
+        assert stats["warning_channels"] == 0
+        assert stats["completed_channels"] == 1
+        assert any(
+            call.args[0] == "SKIP" and "Join this channel" in call.args[1]
+            for call in engine._broadcaster.broadcast_sync.call_args_list
+        )
+
+    def test_real_error_is_hard_error_and_warning_channel(self, engine):
+        engine.channels = [engine.channels[0]]
+        process = FakeProcess(["ERROR: extractor failed\n"], returncode=1)
+        with (
+            patch("app.engine.threading.Timer", FakeTimer),
+            patch("app.engine.subprocess.Popen", return_value=process),
+        ):
+            assert engine.run_all() is True
+
+        stats = engine.get_run_stats()
+        assert stats["hard_errors"] == 1
+        assert stats["warning_channels"] == 1
+        assert stats["completed_channels"] == 0
+
+    def test_download_and_skip_counters(self, engine):
+        engine.channels = [engine.channels[0]]
+        process = FakeProcess([
+            "[download] Destination: /downloads/file.webm\n",
+            "[download] abc has already been recorded in the archive\n",
+            "[download] xyz does not pass filter\n",
+        ], returncode=0)
+        with (
+            patch("app.engine.threading.Timer", FakeTimer),
+            patch("app.engine.subprocess.Popen", return_value=process),
+        ):
+            engine.run_all()
+        stats = engine.get_run_stats()
+        assert stats["downloaded_files"] == 1
+        assert stats["archive_skipped"] == 1
+        assert stats["filtered_skipped"] == 1
+
+    def test_progress_callback_is_explicit(self, engine):
+        callback = MagicMock()
+        engine._progress_callback = callback
+        engine.channels = [engine.channels[0]]
+        process = FakeProcess(["[download] 50.0% of 1MiB\n"], returncode=0)
+        original_broadcast = engine._broadcaster.broadcast_sync
+        with (
+            patch("app.engine.threading.Timer", FakeTimer),
+            patch("app.engine.subprocess.Popen", return_value=process),
+        ):
+            engine.run_all()
+        assert callback.call_count == 2
+        assert callback.call_args_list[-1].args[0]["percent"] == 50.0
+        assert engine._broadcaster.broadcast_sync is original_broadcast

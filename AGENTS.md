@@ -101,6 +101,7 @@ normal_limit = 20
 first_run_limit = 99999
 
 [[channels]]
+channel_id = "5ec9dd41-08a6-4b87-a84e-5b6498fcab2a"
 folder_name = "频道A"
 youtube_id = "@channel_handle"
 vid_type = "videos"
@@ -119,7 +120,7 @@ is_first = false
 - **Cookie**: 支持两种模式 — 
   - `file`：通过 API 上传 `cookies.txt`，`--cookies <path>`
   - `browser`：`--cookies-from-browser <browser>:<profile>`，挂载宿主机 Firefox profile（纯文本 SQLite，无需 keyring）
-- **持久化**: `/app/config/`（配置 + archive + cookies），`/downloads/`（下载产物）
+- **持久化**: `/app/config/`（配置 + archive + cookies + `download.log` + `last_run.json` + `loop_state.json`），`/downloads/`（下载产物）
 - **重启**: 设置页「🔄 重启服务」按钮，通过 `os._exit(0)` + Docker `restart: unless-stopped` 实现
 - **健康检查**: `GET /api/health`
 - **内存限制**: 2GB（防止 Deno stdin hang）

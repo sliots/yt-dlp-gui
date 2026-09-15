@@ -15,6 +15,10 @@ __pycache__/
 config.toml
 archive.txt
 cookies.txt
+download.log*
+last_run.json
+loop_state.json
+config.toml.pre-v2.0.14.bak
 
 # 工作区 / 文档
 .sisyphus/

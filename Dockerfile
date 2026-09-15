@@ -22,6 +22,11 @@ RUN mkdir -p /opt/yt-dlp-plugins \
 # ── 高频变更层 ──
 COPY . .
 
+RUN mkdir -p /opt/ffmpeg-wrapper \
+    && chmod +x /app/app/ffmpeg_wrapper.py \
+    && ln -s /app/app/ffmpeg_wrapper.py /opt/ffmpeg-wrapper/ffmpeg \
+    && ln -s /usr/bin/ffprobe /opt/ffmpeg-wrapper/ffprobe
+
 # yt-dlp nightly 置于最底层，每日定时构建仅重拉此层
 RUN curl -fsSL https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux \
     -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp

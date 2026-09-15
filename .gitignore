@@ -2,6 +2,10 @@
 archive.txt
 config.toml
 cookie*.txt
+download.log*
+last_run.json
+loop_state.json
+config.toml.pre-v2.0.14.bak
 
 # 下载输出
 download/
@@ -15,3 +19,4 @@ __pycache__/
 
 # 工作区
 .sisyphus/
+.playwright-cli/

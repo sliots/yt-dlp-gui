@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
 
-from app.config import load_config
+from app.config import DEFAULT_CONFIG_PATH, load_config
 from app.download_manager import DownloadManager
 from app.routes.api import build_router as build_api_router
 from app.routes.pages import build_page_router
@@ -37,14 +38,15 @@ def create_app(
 
 
 def main() -> None:
-    config = load_config()
+    config = load_config(DEFAULT_CONFIG_PATH)
 
     broadcaster = LogBroadcaster(
-        max_history=config.get("general", {}).get("log_max_history", 200)
+        max_history=config.get("general", {}).get("log_max_history", 200),
+        log_path=Path(DEFAULT_CONFIG_PATH).parent / "download.log",
     )
     broadcaster.install_log_handler("yt_dlp_gui")
 
-    manager = DownloadManager(config, broadcaster)
+    manager = DownloadManager(config, broadcaster, DEFAULT_CONFIG_PATH)
     app = create_app(manager, broadcaster, config)
 
     loop = asyncio.new_event_loop()
@@ -58,10 +60,11 @@ def main() -> None:
     logger.info("YT-DLP Download Manager started on 0.0.0.0:%d", port)
 
     try:
+        loop.run_until_complete(manager.auto_start_loop())
         loop.run_until_complete(server.serve())
     finally:
         logger.info("Shutting down...")
-        manager.shutdown()
+        loop.run_until_complete(manager.shutdown())
         logger.info("YT-DLP Download Manager shutdown complete")
 
 
