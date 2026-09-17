@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import io
-import os
-import tempfile
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
+from app.auth import TokenAuth
 from app.download_manager import DownloadManager
-from app.routes.api import ChannelCreate, ConfigUpdate, build_router
+from app.main import create_app
+from app.routes.api import build_router
 from app.websocket_manager import LogBroadcaster
+
+TOKEN = "t" * 32
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
+CHANNEL_ID = "11111111-1111-4111-8111-111111111111"
 
 
 @pytest.fixture
 def base_config():
     return {
+        "schema_version": 3,
         "general": {
             "output_base_path": "/downloads",
             "proxy_url": "",
@@ -30,386 +36,279 @@ def base_config():
             "filename_format": "[%(title)s].%(ext)s",
             "first_run_timeout": 360,
             "normal_timeout": 60,
+            "cookies_source": "file",
             "cookies_file_path": "/app/config/cookies.txt",
+            "cookies_browser": "firefox",
+            "cookies_browser_profile": "",
+            "cookies_browser_container": "",
+            "po_token_enabled": True,
+            "po_token_base_url": "http://bgutil-provider:4416",
+            "log_max_history": 200,
         },
-        "download_limits": {
-            "normal_limit": 20,
-            "first_run_limit": 99999,
-        },
+        "download_limits": {"normal_limit": 20, "first_run_limit": 99999},
         "channels": [],
     }
 
 
 @pytest.fixture
-def manager(base_config, tmp_path):
-    mgr = MagicMock(spec=DownloadManager)
-    mgr.status = {
+def manager(tmp_path):
+    value = MagicMock(spec=DownloadManager)
+    value.status = {"state": "idle", "active": False}
+    value.config_lock = threading.RLock()
+    value.config_path = tmp_path / "config.toml"
+    value.channel_runtimes.return_value = {}
+    value.channel_runtime.side_effect = lambda channel_id: {
+        "channel_id": channel_id,
         "state": "idle",
-        "active": False,
-        "running": False,
-        "mode": None,
-        "current_channel_index": 0,
-        "total_channels": 0,
-        "current_channel_label": "",
-        "progress_percent": 0.0,
-        "next_round_seconds": 0,
-        "current_run": None,
-        "last_run": None,
+        "percent": 0.0,
     }
-    mgr.config_lock = threading.RLock()
-    mgr.config_path = tmp_path / "config.toml"
-    mgr.start_once = AsyncMock(return_value={"ok": True})
-    mgr.start_loop = AsyncMock(return_value={"ok": True})
-    mgr.start_first_only = AsyncMock(return_value={"ok": True})
-    mgr.stop = AsyncMock(return_value={"ok": True})
-    mgr.update_ytdlp = AsyncMock(return_value={"ok": True, "output": "updated"})
-    return mgr
+    value.start_once = AsyncMock(return_value={"ok": True})
+    value.start_loop = AsyncMock(return_value={"ok": True})
+    value.start_first_only = AsyncMock(return_value={"ok": True})
+    value.start_selected = AsyncMock(return_value={"ok": True})
+    value.stop = AsyncMock(return_value={"ok": True})
+    value.update_ytdlp = AsyncMock(return_value={"ok": True})
+    value.resolve_channel = AsyncMock(return_value={"ok": True})
+    value.test_channel = AsyncMock(return_value={"ok": True, "message": "ok"})
+    return value
 
 
 @pytest.fixture
 def client(manager, base_config):
     app = FastAPI()
-    app.include_router(build_router(manager, base_config))
+    app.include_router(build_router(manager, base_config, TokenAuth(TOKEN)))
     return TestClient(app)
 
 
-class TestHealth:
-    def test_health_returns_ok(self, client):
-        r = client.get("/api/health")
-        assert r.status_code == 200
-        assert r.json()["status"] == "ok"
+def add_channel(client, **overrides):
+    body = {
+        "folder_name": "Example",
+        "youtube_id": "@example",
+        "vid_type": "videos",
+        "dl_type": "audio",
+        **overrides,
+    }
+    return client.post("/api/v1/channels", json=body, headers=HEADERS)
 
 
-class TestStatus:
-    def test_status_returns_manager_status(self, client):
-        r = client.get("/api/status")
-        assert r.status_code == 200
-        data = r.json()
-        assert "running" in data
-        assert data["running"] is False
+def test_api_requires_bearer_token(client):
+    response = client.get("/api/v1/channels")
+    assert response.status_code == 401
 
 
-class TestControl:
-    def test_run_once(self, client, manager):
-        r = client.post("/api/control/run-once")
-        assert r.status_code == 200
-        assert manager.start_once.await_count == 1
-
-    def test_run_loop(self, client, manager):
-        r = client.post("/api/control/run-loop")
-        assert r.status_code == 200
-        assert manager.start_loop.await_count == 1
-
-    def test_run_first(self, client, manager):
-        r = client.post("/api/control/run-first")
-        assert r.status_code == 200
-        assert manager.start_first_only.await_count == 1
-
-    def test_stop(self, client, manager):
-        r = client.post("/api/control/stop")
-        assert r.status_code == 200
-        assert manager.stop.await_count == 1
-
-    def test_update_ytdlp(self, client, manager):
-        r = client.post("/api/control/update-ytdlp")
-        assert r.status_code == 200
-        assert manager.update_ytdlp.await_count == 1
+def test_auth_check(client):
+    response = client.get("/api/v1/auth/check", headers=HEADERS)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
 
 
-class TestChannels:
-    def test_list_empty(self, client):
-        r = client.get("/api/channels")
-        assert r.status_code == 200
-        assert r.json()["channels"] == []
+def test_add_list_patch_and_delete_channel(client):
+    added = add_channel(client)
+    assert added.status_code == 200
+    item = added.json()["items"][0]
+    assert item["youtube_id"] == "example"
+    assert item["runtime"]["state"] == "idle"
 
-    def test_add_channel(self, client):
-        r = client.post("/api/channels", json={
-            "folder_name": "TestChannel",
-            "youtube_id": "@test",
-            "vid_type": "videos",
-            "dl_type": "audio",
-        })
-        assert r.status_code == 200
-        assert r.json()["ok"] is True
-        assert r.json()["channels"][0]["youtube_id"] == "test"
-        assert r.json()["channels"][0]["channel_id"]
+    patched = client.patch(
+        f"/api/v1/channels/{item['channel_id']}",
+        json={"folder_name": "Renamed", "filter_enabled": True},
+        headers=HEADERS,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["items"][0]["folder_name"] == "Renamed"
+    assert patched.json()["items"][0]["filter_enabled"] is True
 
-    def test_client_cannot_set_channel_id(self, client):
-        r = client.post("/api/channels", json={
-            "channel_id": "client-controlled",
-            "folder_name": "TestChannel",
-            "youtube_id": "test",
-        })
-        assert r.json()["channels"][0]["channel_id"] != "client-controlled"
-
-    @pytest.mark.parametrize("youtube_id", ["test", " TEST ", "@TeSt"])
-    def test_duplicate_channel_returns_409(self, client, youtube_id):
-        client.post("/api/channels", json={
-            "folder_name": "First", "youtube_id": "@Test", "enabled": False,
-        })
-        r = client.post("/api/channels", json={
-            "folder_name": "Second", "youtube_id": youtube_id, "enabled": True,
-        })
-        assert r.status_code == 409
-        assert "videos" in r.json()["detail"]
-
-    def test_same_channel_different_video_type_is_allowed(self, client):
-        client.post("/api/channels", json={
-            "folder_name": "Videos", "youtube_id": "same", "vid_type": "videos",
-        })
-        r = client.post("/api/channels", json={
-            "folder_name": "Streams", "youtube_id": "@SAME", "vid_type": "streams",
-        })
-        assert r.status_code == 200
-
-    def test_edit_and_delete_channel_by_id(self, client):
-        added = client.post("/api/channels", json={
-            "folder_name": "Before", "youtube_id": "test",
-        }).json()["channels"][0]
-        channel_id = added["channel_id"]
-        edited = client.put(f"/api/channels/id/{channel_id}", json={
-            "folder_name": "After", "youtube_id": "test",
-        })
-        assert edited.status_code == 200
-        assert edited.json()["channels"][0]["folder_name"] == "After"
-        assert edited.json()["channels"][0]["channel_id"] == channel_id
-        assert client.delete(f"/api/channels/id/{channel_id}").json()["channels"] == []
-
-    def test_add_channel_validates_required_fields(self, client):
-        r = client.post("/api/channels", json={"folder_name": ""})
-        assert r.status_code == 422
-
-    def test_add_channel_validates_vid_type(self, client):
-        r = client.post("/api/channels", json={
-            "folder_name": "T",
-            "youtube_id": "@t",
-            "vid_type": "invalid",
-        })
-        assert r.status_code == 422
-
-    def test_edit_channel_invalid_index(self, client):
-        r = client.put("/api/channels/99", json={
-            "folder_name": "T",
-            "youtube_id": "@t",
-        })
-        assert r.status_code == 200
-        assert r.json()["ok"] is False
-
-    def test_edit_channel_negative_index(self, client):
-        r = client.put("/api/channels/-1", json={
-            "folder_name": "T",
-            "youtube_id": "@t",
-        })
-        assert r.status_code == 200
-        assert r.json()["ok"] is False
-
-    def test_delete_channel_invalid_index(self, client):
-        r = client.delete("/api/channels/99")
-        assert r.status_code == 200
-        assert r.json()["ok"] is False
-
-    def test_add_channel_then_list(self, client, base_config):
-        client.post("/api/channels", json={
-            "folder_name": "Ch1",
-            "youtube_id": "@ch1",
-        })
-        r = client.get("/api/channels")
-        assert len(r.json()["channels"]) == 1
-        assert r.json()["channels"][0]["folder_name"] == "Ch1"
+    deleted = client.delete(
+        f"/api/v1/channels/{item['channel_id']}",
+        headers=HEADERS,
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["items"] == []
 
 
-class TestConfig:
-    def test_po_token_settings_round_trip(self, client, base_config, tmp_path):
-        body = {
-            **base_config["general"],
-            **base_config["download_limits"],
-            "po_token_enabled": False,
-            "po_token_base_url": "http://custom-provider:4416",
-        }
-        from app.config import load_config, save_config
-        path = tmp_path / "config.toml"
-        with patch("app.config.save_config", side_effect=lambda config, *_: save_config(config, path)):
-            response = client.put("/api/config", json=body)
-        assert response.status_code == 200
-        general = client.get("/api/config").json()["general"]
-        assert general["po_token_enabled"] is False
-        assert general["po_token_base_url"] == "http://custom-provider:4416"
-        assert load_config(path)["general"]["po_token_base_url"] == general["po_token_base_url"]
-
-    @pytest.mark.parametrize("url", [
-        "file:///tmp/provider", "http://host;other=value",
-        "http://host,other", "http://host\nother",
-    ])
-    def test_invalid_po_token_url(self, client, base_config, url):
-        body = {
-            **base_config["general"],
-            **base_config["download_limits"],
-            "po_token_base_url": url,
-        }
-        assert client.put("/api/config", json=body).status_code == 422
-
-    def test_get_config(self, client):
-        r = client.get("/api/config")
-        assert r.status_code == 200
-        data = r.json()
-        assert "general" in data
-        assert "download_limits" in data
-
-    def test_update_config(self, client):
-        r = client.put("/api/config", json={
-            "output_base_path": "/new/path",
-            "proxy_url": "http://test",
-            "sleep_requests": 10,
-            "sleep_time": "30s",
-            "wait_time_minutes": 120,
-            "quiet_mode": True,
-            "dateafter": "20230101",
-            "download_archive": "arch.txt",
-            "filename_format": "[%(id)s].%(ext)s",
-            "normal_limit": 30,
-            "first_run_limit": 500,
-            "first_run_timeout": 180,
-            "normal_timeout": 30,
-            "cookies_file_path": "/app/cookies.txt",
-        })
-        assert r.status_code == 200
-        assert r.json()["ok"] is True
-
-    def test_update_config_validates_dateafter_pattern(self, client):
-        r = client.put("/api/config", json={
-            "output_base_path": "/",
-            "proxy_url": "",
-            "sleep_requests": 5,
-            "sleep_time": "5s",
-            "wait_time_minutes": 60,
-            "quiet_mode": False,
-            "dateafter": "invalid",
-            "download_archive": "a.txt",
-            "filename_format": "[%(title)s]",
-            "normal_limit": 10,
-            "first_run_limit": 10,
-            "first_run_timeout": 60,
-            "normal_timeout": 30,
-            "cookies_file_path": "/a",
-        })
-        assert r.status_code == 422
-
-    def test_update_config_validates_dateafter_8digits(self, client):
-        r = client.put("/api/config", json={
-            "output_base_path": "/",
-            "proxy_url": "",
-            "sleep_requests": 5,
-            "sleep_time": "5s",
-            "wait_time_minutes": 60,
-            "quiet_mode": False,
-            "dateafter": "20000101",
-            "download_archive": "a.txt",
-            "filename_format": "[%(title)s]",
-            "normal_limit": 10,
-            "first_run_limit": 10,
-            "first_run_timeout": 60,
-            "normal_timeout": 30,
-            "cookies_file_path": "/a",
-        })
-        assert r.status_code == 200
-
-    def test_update_config_rejects_negative_sleep_requests(self, client):
-        r = client.put("/api/config", json={
-            "output_base_path": "/",
-            "proxy_url": "",
-            "sleep_requests": -1,
-            "sleep_time": "5s",
-            "wait_time_minutes": 60,
-            "quiet_mode": False,
-            "dateafter": "20000101",
-            "download_archive": "a.txt",
-            "filename_format": "[%(title)s]",
-            "normal_limit": 10,
-            "first_run_limit": 10,
-            "first_run_timeout": 60,
-            "normal_timeout": 30,
-            "cookies_file_path": "/a",
-        })
-        assert r.status_code == 422
-
-    def test_update_config_rejects_empty_filename_format(self, client):
-        r = client.put("/api/config", json={
-            "output_base_path": "/",
-            "proxy_url": "",
-            "sleep_requests": 5,
-            "sleep_time": "5s",
-            "wait_time_minutes": 60,
-            "quiet_mode": False,
-            "dateafter": "20000101",
-            "download_archive": "a.txt",
-            "filename_format": "",
-            "normal_limit": 10,
-            "first_run_limit": 10,
-            "first_run_timeout": 60,
-            "normal_timeout": 30,
-            "cookies_file_path": "/a",
-        })
-        assert r.status_code == 422
+def test_channel_input_accepts_url(client):
+    response = add_channel(
+        client,
+        youtube_id="https://www.youtube.com/@Example/videos",
+    )
+    item = response.json()["items"][0]
+    assert item["youtube_id"] == "Example"
+    assert item["source_url"] == "https://www.youtube.com/@Example"
 
 
-class TestCookies:
-    def test_upload_non_txt_rejected(self, client):
-        r = client.post("/api/cookies", files={"file": ("test.json", io.BytesIO(b"{}"), "application/json")})
-        assert r.status_code == 200
-        assert r.json()["ok"] is False
-        assert "txt" in r.json()["reason"]
-
-    def test_upload_txt_file_accepted(self, client, base_config):
-        content = b"# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tname\tvalue\n"
-        tmp_dir = tempfile.mkdtemp()
-        base_config["general"]["cookies_file_path"] = os.path.join(tmp_dir, "test_cookies.txt")
-        try:
-            r = client.post("/api/cookies", files={"file": ("cookies.txt", io.BytesIO(content), "text/plain")})
-            assert r.status_code == 200
-            assert r.json()["ok"] is True
-        finally:
-            import shutil
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+def test_channel_input_preserves_verified_metadata(client):
+    response = add_channel(
+        client,
+        youtube_id="UC12345678901234567890",
+        youtube_channel_id="UC12345678901234567890",
+        channel_title="Verified Channel",
+        resolved_at="2026-09-17T12:00:00Z",
+    )
+    item = response.json()["items"][0]
+    assert item["channel_title"] == "Verified Channel"
+    assert item["resolved_at"] == "2026-09-17T12:00:00Z"
 
 
-class TestPydanticModels:
-    def test_channel_create_required_fields(self):
-        with pytest.raises(Exception):
-            ChannelCreate()
-
-    def test_channel_create_defaults(self):
-        ch = ChannelCreate(folder_name="A", youtube_id="@a")
-        assert ch.vid_type == "videos"
-        assert ch.dl_type == "audio"
-        assert ch.enabled is True
-        assert ch.is_regex is False
-        assert ch.is_first is True
-
-    def test_config_update_dateafter_regex(self):
-        with pytest.raises(Exception):
-            ConfigUpdate(
-                output_base_path="/",
-                proxy_url="",
-                sleep_requests=5,
-                sleep_time="5s",
-                wait_time_minutes=60,
-                quiet_mode=False,
-                dateafter="bad",
-                download_archive="a.txt",
-                filename_format="[%(title)s]",
-                normal_limit=10,
-                first_run_limit=10,
-            )
-
-    @pytest.mark.asyncio
-    async def test_control_returns_mutex_rejection(self, client, manager):
-        manager.start_once.return_value = {"ok": False, "reason": "已有下载任务运行中"}
-        r = client.post("/api/control/run-once")
-        assert r.status_code == 200
-        assert r.json()["ok"] is False
-        assert "运行中" in r.json()["reason"]
+@pytest.mark.parametrize("folder", ["../escape", "/absolute", "a/b", "a\\b"])
+def test_channel_rejects_path_escape(client, folder):
+    response = add_channel(client, folder_name=folder)
+    assert response.status_code == 422
 
 
-class AsyncMock(MagicMock):
-    async def __call__(self, *args, **kwargs):
-        return super().__call__(*args, **kwargs)
+def test_duplicate_channel_returns_conflict(client):
+    assert add_channel(client).status_code == 200
+    response = add_channel(client, folder_name="Other")
+    assert response.status_code == 409
+
+
+def test_handle_and_url_are_duplicates(client):
+    assert add_channel(client, youtube_id="@Example").status_code == 200
+    response = add_channel(
+        client,
+        folder_name="Other",
+        youtube_id="https://www.youtube.com/@Example/videos",
+    )
+    assert response.status_code == 409
+
+
+def test_reorder_requires_complete_unique_permutation(client, base_config):
+    first = add_channel(client).json()["items"][0]
+    second = add_channel(
+        client,
+        folder_name="Second",
+        youtube_id="@second",
+    ).json()["items"][1]
+
+    invalid = client.put(
+        "/api/v1/channels/order",
+        json={"channel_ids": [first["channel_id"]]},
+        headers=HEADERS,
+    )
+    assert invalid.status_code == 409
+
+    valid = client.put(
+        "/api/v1/channels/order",
+        json={"channel_ids": [second["channel_id"], first["channel_id"]]},
+        headers=HEADERS,
+    )
+    assert valid.status_code == 200
+    assert [item["channel_id"] for item in valid.json()["items"]] == [
+        second["channel_id"],
+        first["channel_id"],
+    ]
+
+
+def test_bulk_actions_are_atomic(client, manager):
+    first = add_channel(client).json()["items"][0]
+    second = add_channel(
+        client,
+        folder_name="Second",
+        youtube_id="@second",
+    ).json()["items"][1]
+
+    response = client.post(
+        "/api/v1/channels/bulk-actions",
+        json={
+            "action": "set_dl_type",
+            "channel_ids": [first["channel_id"], second["channel_id"]],
+            "dl_type": "video",
+        },
+        headers=HEADERS,
+    )
+    assert response.status_code == 200
+    assert all(item["dl_type"] == "video" for item in response.json()["items"])
+
+    missing = client.post(
+        "/api/v1/channels/bulk-actions",
+        json={
+            "action": "enable",
+            "channel_ids": [CHANNEL_ID],
+            "enabled": True,
+        },
+        headers=HEADERS,
+    )
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bulk_run_rejects_disabled(client, manager):
+    item = add_channel(client, enabled=False).json()["items"][0]
+    response = client.post(
+        "/api/v1/channels/bulk-actions",
+        json={"action": "run", "channel_ids": [item["channel_id"]]},
+        headers=HEADERS,
+    )
+    assert response.status_code == 409
+
+
+def test_config_patch_only_updates_provided_fields(client, base_config):
+    response = client.patch(
+        "/api/v1/config",
+        json={"normal_limit": 7, "proxy_url": "http://proxy:8080"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200
+    assert base_config["download_limits"]["normal_limit"] == 7
+    assert base_config["general"]["proxy_url"] == "http://proxy:8080"
+    assert base_config["general"]["sleep_time"] == "5s"
+
+
+def test_cookie_upload_validates_format_and_limit(client, tmp_path, monkeypatch):
+    cookie_path = tmp_path / "cookies.txt"
+    monkeypatch.setenv("COOKIES_FILE", str(cookie_path))
+
+    invalid = client.post(
+        "/api/v1/cookies",
+        files={"file": ("cookies.txt", io.BytesIO(b"not a cookie"), "text/plain")},
+        headers=HEADERS,
+    )
+    assert invalid.status_code == 422
+
+    too_large = client.post(
+        "/api/v1/cookies",
+        files={"file": ("cookies.txt", io.BytesIO(b"x" * (1024 * 1024 + 1)), "text/plain")},
+        headers=HEADERS,
+    )
+    assert too_large.status_code == 413
+
+    line = b".example.com\tTRUE\t/\tFALSE\t0\tname\tvalue\n"
+    valid = client.post(
+        "/api/v1/cookies",
+        files={"file": ("cookies.txt", io.BytesIO(line), "text/plain")},
+        headers=HEADERS,
+    )
+    assert valid.status_code == 200
+    assert cookie_path.exists()
+
+
+def test_unknown_channel_returns_404(client):
+    response = client.patch(
+        f"/api/v1/channels/{CHANNEL_ID}",
+        json={"enabled": False},
+        headers=HEADERS,
+    )
+    assert response.status_code == 404
+
+
+def test_websocket_requires_token(manager, base_config):
+    app = create_app(
+        manager,
+        LogBroadcaster(),
+        base_config,
+        TokenAuth(TOKEN),
+    )
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            with client.websocket_connect("/ws/logs?token=wrong"):
+                pass
+        assert exc.value.code == 1008
+        with client.websocket_connect(f"/ws/logs?token={TOKEN}") as socket:
+            socket.close()
+
+
+def test_security_headers(manager, base_config):
+    app = create_app(manager, LogBroadcaster(), base_config, TokenAuth(TOKEN))
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]

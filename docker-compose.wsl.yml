@@ -1,22 +1,32 @@
 services:
   app:
     build: .
-    image: yt-dlp-gui:local
+    image: ghcr.io/sliots/yt-dlp-gui:local
     ports:
-      - "55595:8080"
+      - "${HOST_BIND_IP:-0.0.0.0}:${HOST_PORT:-55595}:8080"
     volumes:
       - /mnt/c/data/yt-dlp-gui/config:/app/config
       - /mnt/c/data/yt-dlp-gui/downloads:/downloads
       - /mnt/c/Users/game7/AppData/Roaming/Mozilla/Firefox/Profiles/yfhavfk0.default-release:/firefox-profile:ro
     environment:
-      - TZ=Asia/Shanghai
+      APP_TOKEN: ${APP_TOKEN:?APP_TOKEN must be set}
+      TZ: Asia/Shanghai
+      ENABLE_SELF_UPDATE: "false"
     depends_on:
       bgutil-provider:
         condition: service_healthy
+    init: true
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777,exec
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     mem_limit: 2g
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
@@ -25,7 +35,6 @@ services:
     image: brainicism/bgutil-ytdlp-pot-provider:2.0.0
     init: true
     restart: unless-stopped
-    # Internal Compose network only; do not publish this unauthenticated service.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4416/ping').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
       interval: 30s

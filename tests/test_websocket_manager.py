@@ -4,11 +4,11 @@ import asyncio
 import json
 import logging
 
-import pytest
-
+from app.main import RedactingFilter
 from app.websocket_manager import (
     LogBroadcaster,
     _get_loop,
+    _redact,
     _WSLogHandler,
     set_event_loop,
 )
@@ -78,6 +78,14 @@ class TestBroadcastSync:
         assert len(broadcaster._history) == 1
         assert broadcaster._history[0]["level"] == "WARNING"
 
+    def test_progress_is_rate_limited(self):
+        broadcaster = LogBroadcaster()
+        broadcaster.broadcast_sync("PROGRESS", '{"percent": 10}')
+        broadcaster.broadcast_sync("PROGRESS", '{"percent": 20}')
+        assert broadcaster._sequence == 1
+        broadcaster.broadcast_sync("PROGRESS", '{"percent": 100}')
+        assert broadcaster._sequence == 2
+
     def test_jsonl_redacts_tokens_and_excludes_progress(self, tmp_path):
         path = tmp_path / "download.log"
         broadcaster = LogBroadcaster(log_path=path)
@@ -126,3 +134,24 @@ class TestInstallLogHandler:
         handlers = [h for h in logger.handlers if isinstance(h, _WSLogHandler)]
         assert len(handlers) == 1
         logger.removeHandler(handlers[0])
+
+
+def test_websocket_token_query_is_redacted():
+    assert _redact("ws://host/ws/logs?token=secret&x=1") == (
+        "ws://host/ws/logs?token=[REDACTED]&x=1"
+    )
+
+
+def test_uvicorn_log_filter_redacts_token_arguments():
+    record = logging.LogRecord(
+        name="uvicorn.error",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg='WebSocket %s [accepted]',
+        args=("/ws/logs?token=secret",),
+        exc_info=None,
+    )
+    RedactingFilter().filter(record)
+    assert "secret" not in record.args[0]
+    assert "[REDACTED]" in record.args[0]

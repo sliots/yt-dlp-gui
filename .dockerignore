@@ -18,11 +18,14 @@ cookies.txt
 download.log*
 last_run.json
 loop_state.json
-config.toml.pre-v2.0.14.bak
+*.bak
 
 # 工作区 / 文档
 .sisyphus/
+.playwright-cli/
+output/
 *.md
+!README.md
 *.spec
 
 # 已删除的旧文件（以防残留）

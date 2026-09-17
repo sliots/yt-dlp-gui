@@ -7,12 +7,13 @@ import os
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from app.config import DEFAULT_CONFIG_PATH, save_config
 from app.engine import YtDlpEngine
+from app.models import ChannelRuntime
 from app.websocket_manager import LogBroadcaster
 
 RUN_STAT_FIELDS = (
@@ -48,6 +49,7 @@ class DownloadManager:
         self._stop_event: asyncio.Event | None = None
         self._state = "idle"
         self._mode: str | None = None
+        self._selected_channel_ids: list[str] = []
         self._current_channel_index = 0
         self._total_channels = 0
         self._current_channel_label = ""
@@ -57,6 +59,7 @@ class DownloadManager:
         self._current_run: dict[str, Any] | None = None
         self._run_started_monotonic = 0.0
         self._last_run = self._load_last_run()
+        self._channel_runtime = self._runtime_from_last_run(self._last_run)
         self._shutdown_requested = False
 
     @property
@@ -102,21 +105,50 @@ class DownloadManager:
             if engine is not None:
                 current_run.update(engine.get_run_stats())
             if started_monotonic:
-                current_run["duration_seconds"] = round(
-                    time.monotonic() - started_monotonic, 1,
-                )
-
+                current_run["duration_seconds"] = round(time.monotonic() - started_monotonic, 1)
         status["current_run"] = current_run
         status["last_run"] = last_run
         return status
 
     def _load_last_run(self) -> dict[str, Any] | None:
         try:
-            with open(self._last_run_path, "r", encoding="utf-8") as file:
+            with open(self._last_run_path, encoding="utf-8") as file:
                 value = json.load(file)
             return value if isinstance(value, dict) else None
         except (FileNotFoundError, OSError, json.JSONDecodeError):
             return None
+
+    @staticmethod
+    def _runtime_from_last_run(last_run: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+        if not last_run:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        for item in last_run.get("channel_results", []):
+            if isinstance(item, dict) and item.get("channel_id"):
+                try:
+                    runtime = ChannelRuntime.model_validate(item)
+                    result[runtime.channel_id] = runtime.model_dump(mode="json")
+                except Exception:
+                    continue
+        return result
+
+    def channel_runtimes(self) -> dict[str, dict[str, Any]]:
+        with self._state_lock:
+            result = copy.deepcopy(self._channel_runtime)
+            engine = self._engine
+        if engine is not None:
+            for channel_id, runtime in engine.get_channel_results().items():
+                result[channel_id] = {**result.get(channel_id, {}), **runtime}
+        return result
+
+    def channel_runtime(self, channel_id: str) -> dict[str, Any]:
+        runtime = self.channel_runtimes().get(channel_id, {})
+        return {
+            "channel_id": channel_id,
+            "state": "idle",
+            "percent": 0.0,
+            **runtime,
+        }
 
     def _persist_last_run(self, summary: dict[str, Any]) -> None:
         try:
@@ -126,17 +158,21 @@ class DownloadManager:
                 json.dump(summary, file, ensure_ascii=False, indent=2)
                 file.flush()
                 os.fsync(file.fileno())
+            try:
+                os.chmod(temp_path, 0o600)
+            except OSError:
+                pass
             os.replace(temp_path, self._last_run_path)
         except OSError as exc:
             self._broadcaster.broadcast_sync("WARNING", f"上一轮摘要保存失败：{exc}")
 
     def _load_loop_deadline(self) -> float | None:
         try:
-            with open(self._loop_state_path, "r", encoding="utf-8") as file:
+            with open(self._loop_state_path, encoding="utf-8") as file:
                 value = json.load(file)
             next_run_at = datetime.fromisoformat(value["next_run_at"])
             if next_run_at.tzinfo is None:
-                next_run_at = next_run_at.replace(tzinfo=timezone.utc)
+                next_run_at = next_run_at.replace(tzinfo=UTC)
             return next_run_at.timestamp()
         except FileNotFoundError:
             return None
@@ -148,7 +184,7 @@ class DownloadManager:
         value = {
             "mode": "loop",
             "state": "waiting",
-            "next_run_at": datetime.fromtimestamp(deadline, timezone.utc).isoformat(),
+            "next_run_at": datetime.fromtimestamp(deadline, UTC).isoformat(),
         }
         try:
             self._loop_state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,14 +211,25 @@ class DownloadManager:
             self._progress_percent = 0.0
 
     def _update_progress(self, info: dict[str, Any]) -> None:
+        channel_id = str(info.get("channel_id") or "")
         with self._state_lock:
             self._current_channel_index = info.get("channel_index", 0)
             self._total_channels = info.get("channel_total", 0)
             self._current_channel_label = info.get("channel_label", "")
             self._progress_percent = info.get("percent", 0.0)
+            if channel_id:
+                current = self._channel_runtime.setdefault(channel_id, {"channel_id": channel_id})
+                current.update(
+                    {
+                        "state": "running",
+                        "percent": info.get("percent", 0.0),
+                        "last_started_at": current.get("last_started_at")
+                        or datetime.now(UTC).isoformat(),
+                    }
+                )
 
-    def _begin_run(self, mode: str, total_channels: int) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+    def _begin_run(self, mode: str, total_channels: int, channel_ids: list[str]) -> None:
+        now = datetime.now(UTC).isoformat()
         with self._state_lock:
             self._state = "running"
             self._current_run = {
@@ -190,6 +237,7 @@ class DownloadManager:
                 "finished_at": None,
                 "duration_seconds": 0.0,
                 "mode": mode,
+                "outcome": None,
                 "total_channels": total_channels,
                 "processed_channels": 0,
                 "completed_channels": 0,
@@ -202,13 +250,35 @@ class DownloadManager:
                 "stopped": False,
             }
             self._run_started_monotonic = time.monotonic()
+            for channel_id in channel_ids:
+                current = self._channel_runtime.setdefault(channel_id, {"channel_id": channel_id})
+                current.update({"state": "queued", "percent": 0.0})
+
+    def _mark_selected_error(self, message: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._state_lock:
+            for channel_id in self._selected_channel_ids:
+                current = self._channel_runtime.setdefault(
+                    channel_id,
+                    {"channel_id": channel_id},
+                )
+                current.update(
+                    {
+                        "state": "error",
+                        "last_outcome": "error",
+                        "last_error": message,
+                        "last_finished_at": now,
+                    }
+                )
 
     def _finish_run(
         self,
         engine_stats: dict[str, Any] | None = None,
+        engine_results: dict[str, dict[str, Any]] | None = None,
         *,
         stopped: bool = False,
         hard_errors: int = 0,
+        outcome: str = "success",
     ) -> None:
         with self._state_lock:
             if self._current_run is None:
@@ -220,23 +290,40 @@ class DownloadManager:
                         summary[field] = engine_stats[field]
             summary["hard_errors"] += hard_errors
             summary["stopped"] = bool(summary["stopped"] or stopped)
-            summary["finished_at"] = datetime.now(timezone.utc).isoformat()
-            summary["duration_seconds"] = round(
-                time.monotonic() - self._run_started_monotonic, 1,
+            summary["outcome"] = (
+                "stopped" if summary["stopped"] else outcome
             )
+            summary["finished_at"] = datetime.now(UTC).isoformat()
+            summary["duration_seconds"] = round(
+                time.monotonic() - self._run_started_monotonic,
+                1,
+            )
+            if engine_results:
+                self._channel_runtime.update(copy.deepcopy(engine_results))
+            summary["channel_results"] = list(self._channel_runtime.values())
             self._last_run = summary
             self._current_run = None
             self._run_started_monotonic = 0.0
         self._persist_last_run(summary)
 
-    def _snapshot_config(self, mode: str) -> dict[str, Any]:
+    def _snapshot_config(
+        self,
+        mode: str,
+        channel_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
         with self._config_lock:
             snapshot = copy.deepcopy(self._config)
+        channels = snapshot.get("channels", [])
         if mode == "first_only":
-            snapshot["channels"] = [
-                channel for channel in snapshot.get("channels", [])
-                if channel.get("is_first", False)
+            channels = [channel for channel in channels if channel.get("is_first", False)]
+        elif mode == "selected":
+            wanted = set(channel_ids or [])
+            channels = [
+                {**channel, "is_first": False}
+                for channel in channels
+                if channel.get("channel_id") in wanted and channel.get("enabled", True)
             ]
+        snapshot["channels"] = channels
         return snapshot
 
     def _merge_is_first(self, snapshot: dict, engine: YtDlpEngine) -> None:
@@ -273,24 +360,23 @@ class DownloadManager:
         if remaining <= 0:
             self._clear_loop_deadline()
             return False
-
         if resumed:
             self._broadcaster.broadcast_sync(
-                "INFO", f"恢复循环等待，距离下一轮约 {int(remaining)} 秒",
+                "INFO",
+                f"恢复循环等待，距离下一轮约 {int(remaining)} 秒",
             )
         with self._state_lock:
             self._state = "waiting"
             self._countdown_start = time.time()
             self._countdown_duration = remaining
         self._clear_progress()
-
         stop_event = self._stop_event
         if stop_event is None:
             return True
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=remaining)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._clear_loop_deadline()
             with self._state_lock:
                 self._countdown_start = 0.0
@@ -301,6 +387,7 @@ class DownloadManager:
         self,
         mode: str,
         initial_wait_until: float | None = None,
+        channel_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         outcome = "success"
         self._broadcaster.broadcast_sync("INFO", f"启动模式：{mode}")
@@ -309,7 +396,8 @@ class DownloadManager:
             should_run = True
             if initial_wait_until is not None:
                 should_run = not await self._wait_for_loop_deadline(
-                    initial_wait_until, resumed=True,
+                    initial_wait_until,
+                    resumed=True,
                 )
 
             while (
@@ -319,60 +407,74 @@ class DownloadManager:
             ):
                 if mode == "loop":
                     self._clear_loop_deadline()
-                snapshot = self._snapshot_config(mode)
+                snapshot = self._snapshot_config(mode, channel_ids)
                 channels = snapshot.get("channels", [])
                 active_count = sum(ch.get("enabled", True) for ch in channels)
-                self._begin_run(mode, active_count)
+                selected_ids = [str(ch.get("channel_id")) for ch in channels]
+                self._begin_run(mode, active_count, selected_ids)
 
                 general = snapshot.get("general", {})
                 cookies_source = general.get("cookies_source", "file")
-                cookies_path = general.get("cookies_file_path", "/app/config/cookies.txt")
+                cookies_path = general.get("cookies_file_path", "")
                 if cookies_source == "file" and cookies_path and not os.path.exists(cookies_path):
                     self._broadcaster.broadcast_sync(
-                        "ERROR", f"✖ cookies 文件不存在：{cookies_path}，请先通过 API 上传",
+                        "ERROR",
+                        f"配置校验失败：cookies 文件不存在：{cookies_path}",
                     )
-                    self._broadcaster.broadcast_sync("ERROR", "上传方式：设置 Tab → 上传 cookies.txt")
-                    self._finish_run(hard_errors=1)
-                    outcome = "validation_error"
+                    self._mark_selected_error("配置校验失败：cookies 文件不存在")
+                    self._finish_run(hard_errors=1, outcome="failed")
+                    outcome = "failed"
                     break
-
                 if mode == "first_only" and not channels:
-                    self._broadcaster.broadcast_sync("WARNING", "⚠ 没有标记为首次下载的频道")
-                    self._finish_run()
-                    outcome = "no_work"
+                    self._broadcaster.broadcast_sync("WARNING", "没有标记为首次下载的频道")
+                    self._finish_run(outcome="success")
+                    outcome = "success"
                     break
                 if not active_count:
-                    self._broadcaster.broadcast_sync("WARNING", "⚠ 没有启用的频道")
-                    self._finish_run()
-                    outcome = "no_work"
+                    self._broadcaster.broadcast_sync("WARNING", "没有可运行的频道")
+                    self._finish_run(outcome="success")
+                    outcome = "success"
                     break
 
                 engine = YtDlpEngine(snapshot, self._broadcaster, self._update_progress)
                 with self._state_lock:
                     self._engine = engine
-                ok = await asyncio.to_thread(engine.run_all)
+                await asyncio.to_thread(engine.run_all)
                 engine_stats = engine.get_run_stats()
+                engine_results = (
+                    engine.get_channel_results()
+                    if hasattr(engine, "get_channel_results")
+                    else None
+                )
                 self._merge_is_first(snapshot, engine)
                 stopped = bool(
                     self._stop_event.is_set() or engine_stats.get("stopped", False)
                 )
-                self._finish_run(engine_stats, stopped=stopped)
+                if stopped:
+                    outcome = "stopped"
+                elif hasattr(engine, "get_run_outcome"):
+                    outcome = engine.get_run_outcome()
+                elif engine_stats.get("hard_errors", 0):
+                    outcome = "partial"
+                else:
+                    outcome = "success"
+                self._finish_run(
+                    engine_stats,
+                    engine_results,
+                    stopped=stopped,
+                    outcome=outcome,
+                )
                 with self._state_lock:
                     self._engine = None
 
-                if stopped:
-                    outcome = "stopped"
-                    break
-                if not ok:
-                    outcome = "error"
-                    break
-                if mode != "loop":
+                if stopped or mode != "loop":
                     break
 
                 wait_minutes = general.get("wait_time_minutes", 360)
                 deadline = time.time() + wait_minutes * 60
                 self._broadcaster.broadcast_sync(
-                    "INFO", f"⏰ 下一轮将在 {wait_minutes} 分钟后开始",
+                    "INFO",
+                    f"下一轮将在 {wait_minutes} 分钟后开始",
                 )
                 self._persist_loop_deadline(deadline)
                 if await self._wait_for_loop_deadline(deadline):
@@ -384,27 +486,33 @@ class DownloadManager:
 
         except Exception as exc:
             self._broadcaster.broadcast_sync("ERROR", f"任务发生未捕获异常：{exc}")
+            self._mark_selected_error(str(exc))
             engine_stats = self._engine.get_run_stats() if self._engine else None
-            self._finish_run(engine_stats, hard_errors=1)
-            outcome = "error"
+            engine_results = (
+                self._engine.get_channel_results()
+                if self._engine and hasattr(self._engine, "get_channel_results")
+                else None
+            )
+            self._finish_run(
+                engine_stats,
+                engine_results,
+                hard_errors=1,
+                outcome="failed",
+            )
+            outcome = "failed"
         finally:
-            if outcome == "success":
-                self._broadcaster.broadcast_sync("SUCCESS", "所有任务完成")
-            elif outcome == "stopped":
-                if self._shutdown_requested:
-                    self._broadcaster.broadcast_sync("INFO", "应用关闭，当前任务已暂停")
-                else:
-                    self._broadcaster.broadcast_sync("WARNING", "任务已由用户停止")
-            elif outcome == "validation_error":
-                self._broadcaster.broadcast_sync("ERROR", "任务因配置校验失败结束")
-            elif outcome == "no_work":
-                self._broadcaster.broadcast_sync("WARNING", "任务结束：没有可处理频道")
-            else:
-                self._broadcaster.broadcast_sync("ERROR", "任务异常结束")
-
+            messages = {
+                "success": ("SUCCESS", "所有任务完成"),
+                "partial": ("WARNING", "任务完成，部分频道存在警告或错误"),
+                "failed": ("ERROR", "任务异常结束"),
+                "stopped": ("WARNING", "任务已停止"),
+            }
+            level, message = messages.get(outcome, ("ERROR", "任务异常结束"))
+            self._broadcaster.broadcast_sync(level, message)
             with self._state_lock:
                 self._state = "idle"
                 self._mode = None
+                self._selected_channel_ids = []
                 self._engine = None
                 self._stop_event = None
                 self._current_task = None
@@ -412,7 +520,7 @@ class DownloadManager:
                 self._countdown_duration = 0.0
             self._clear_progress()
 
-        return {"ok": outcome == "success", "reason": outcome}
+        return {"ok": outcome != "failed", "reason": outcome}
 
     async def _start(
         self,
@@ -420,6 +528,7 @@ class DownloadManager:
         *,
         initial_wait_until: float | None = None,
         clear_loop_deadline: bool = False,
+        channel_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         now = time.time()
         waiting = bool(initial_wait_until and initial_wait_until > now)
@@ -428,13 +537,18 @@ class DownloadManager:
                 return {"ok": False, "reason": "已有下载任务运行中"}
             self._state = "waiting" if waiting else "running"
             self._mode = mode
+            self._selected_channel_ids = list(channel_ids or [])
             self._stop_event = asyncio.Event()
             self._shutdown_requested = False
-            if waiting:
+            if waiting and initial_wait_until is not None:
                 self._countdown_start = now
                 self._countdown_duration = initial_wait_until - now
             self._current_task = asyncio.create_task(
-                self._run_download(mode, initial_wait_until if waiting else None),
+                self._run_download(
+                    mode,
+                    initial_wait_until if waiting else None,
+                    channel_ids,
+                )
             )
         if clear_loop_deadline:
             self._clear_loop_deadline()
@@ -444,7 +558,6 @@ class DownloadManager:
         deadline = self._load_loop_deadline()
         if deadline is not None and deadline > time.time():
             return await self._start("loop", initial_wait_until=deadline)
-
         self._clear_loop_deadline()
         self._broadcaster.broadcast_sync("INFO", "应用启动，自动开始循环运行")
         return await self._start("loop")
@@ -457,6 +570,13 @@ class DownloadManager:
 
     async def start_first_only(self) -> dict[str, Any]:
         return await self._start("first_only")
+
+    async def start_selected(self, channel_ids: list[str]) -> dict[str, Any]:
+        if not channel_ids:
+            return {"ok": False, "reason": "未选择频道"}
+        if self.active:
+            return {"ok": False, "reason": "已有下载任务运行中"}
+        return await self._start("selected", channel_ids=channel_ids)
 
     async def stop(self) -> dict[str, Any]:
         with self._state_lock:
@@ -477,22 +597,56 @@ class DownloadManager:
     async def update_ytdlp(self) -> dict[str, Any]:
         if self.active:
             return {"ok": False, "reason": "下载任务活跃中，无法更新"}
+        if os.getenv("ENABLE_SELF_UPDATE", "false").lower() not in {"1", "true", "yes"}:
+            return {"ok": False, "reason": "网页自更新已禁用，请更新容器镜像"}
         try:
-            result = subprocess.run(
-                ["/usr/local/bin/yt-dlp", "-U", "--update-to", "nightly"],
-                capture_output=True,
-                text=True,
-                timeout=120,
+            process = await asyncio.create_subprocess_exec(
+                os.getenv("YTDLP_BIN", "/usr/local/bin/yt-dlp"),
+                "-U",
+                "--update-to",
+                "nightly",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
             )
-            output = result.stdout.strip() or result.stderr.strip()
+            try:
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=120)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+                return {"ok": False, "reason": "更新超时"}
+            output = stdout.decode("utf-8", errors="replace").strip()
             self._broadcaster.broadcast_sync("INFO", f"yt-dlp 更新：{output}")
+            if process.returncode != 0:
+                return {"ok": False, "reason": output or "yt-dlp 更新失败"}
             return {"ok": True, "output": output}
-        except FileNotFoundError:
-            return {"ok": False, "reason": "找不到 yt-dlp"}
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "reason": "更新超时"}
-        except Exception as exc:
+        except OSError as exc:
             return {"ok": False, "reason": str(exc)}
+
+    async def resolve_channel(self, channel: dict) -> dict[str, Any]:
+        if self.active:
+            return {"ok": False, "message": "下载任务活跃中，无法解析频道"}
+        with self._config_lock:
+            snapshot = copy.deepcopy(self._config)
+        engine = YtDlpEngine(snapshot, self._broadcaster)
+        return await asyncio.to_thread(engine.resolve_channel, channel)
+
+    async def test_channel(self, channel: dict) -> dict[str, Any]:
+        if self.active:
+            return {"ok": False, "message": "下载任务活跃中，无法检测频道"}
+        with self._config_lock:
+            snapshot = copy.deepcopy(self._config)
+        engine = YtDlpEngine(snapshot, self._broadcaster)
+        result = await asyncio.to_thread(engine.test_channel, channel)
+        now = datetime.now(UTC).isoformat()
+        with self._state_lock:
+            runtime = self._channel_runtime.setdefault(
+                str(channel.get("channel_id")),
+                {"channel_id": str(channel.get("channel_id"))},
+            )
+            runtime["last_test_at"] = now
+            runtime["last_test_ok"] = bool(result.get("ok"))
+            runtime["last_test_message"] = str(result.get("message") or "")[-2000:]
+        return result
 
     async def shutdown(self) -> None:
         with self._state_lock:
@@ -507,7 +661,8 @@ class DownloadManager:
         if task is not None and task is not asyncio.current_task():
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=10)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._broadcaster.broadcast_sync(
-                    "WARNING", "等待下载任务关闭超时，容器将继续退出",
+                    "WARNING",
+                    "等待下载任务关闭超时，容器将继续退出",
                 )

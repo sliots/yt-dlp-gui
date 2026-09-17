@@ -133,7 +133,9 @@ class TestLifecycle:
         assert (await manager.start_once())["ok"] is False
 
     @pytest.mark.asyncio
-    async def test_normal_run_persists_summary_and_clears_progress(self, config, broadcaster, tmp_path):
+    async def test_normal_run_persists_summary_and_clears_progress(
+        self, config, broadcaster, tmp_path,
+    ):
         path = tmp_path / "config.toml"
         manager = DownloadManager(config, broadcaster, path)
         with patch("app.download_manager.YtDlpEngine", FakeEngine):
@@ -151,7 +153,9 @@ class TestLifecycle:
         assert DownloadManager(config, broadcaster, path).status["last_run"] == status["last_run"]
 
     @pytest.mark.asyncio
-    async def test_loop_waiting_is_mutexed_and_stops_immediately(self, config, broadcaster, tmp_path):
+    async def test_loop_waiting_is_mutexed_and_stops_immediately(
+        self, config, broadcaster, tmp_path,
+    ):
         config_path = tmp_path / "config.toml"
         loop_state_path = tmp_path / "loop_state.json"
         manager = DownloadManager(config, broadcaster, config_path)
@@ -198,7 +202,9 @@ class TestLifecycle:
             await asyncio.wait_for(task, timeout=1)
 
     @pytest.mark.asyncio
-    async def test_auto_start_without_valid_wait_runs_immediately(self, config, broadcaster, tmp_path):
+    async def test_auto_start_without_valid_wait_runs_immediately(
+        self, config, broadcaster, tmp_path,
+    ):
         config_path = tmp_path / "config.toml"
         manager = DownloadManager(config, broadcaster, config_path)
         manager._persist_loop_deadline(time.time() - 1)
@@ -227,7 +233,9 @@ class TestLifecycle:
         assert manager._load_loop_deadline() == deadline
 
     @pytest.mark.asyncio
-    async def test_cookie_validation_failure_cleans_up_without_success(self, config, broadcaster, tmp_path):
+    async def test_cookie_validation_failure_cleans_up_without_success(
+        self, config, broadcaster, tmp_path,
+    ):
         config["general"].update({
             "cookies_source": "file",
             "cookies_file_path": str(tmp_path / "missing.txt"),
@@ -240,7 +248,10 @@ class TestLifecycle:
         assert manager.status["last_run"]["hard_errors"] == 1
         calls = broadcaster.broadcast_sync.call_args_list
         assert any(call.args[0] == "ERROR" and "配置校验失败" in call.args[1] for call in calls)
-        assert not any(call.args[0] == "SUCCESS" and call.args[1] == "所有任务完成" for call in calls)
+        assert not any(
+            call.args[0] == "SUCCESS" and call.args[1] == "所有任务完成"
+            for call in calls
+        )
 
     @pytest.mark.asyncio
     async def test_engine_exception_cleans_up_as_error(self, config, broadcaster, tmp_path):
@@ -302,6 +313,18 @@ class TestChannelMerge:
         with patch("app.download_manager.save_config") as save:
             manager._merge_is_first(snapshot, engine)
         save.assert_not_called()
+
+
+class TestSelectedRunSnapshot:
+    def test_selected_snapshot_uses_normal_limit_without_mutating_source(
+        self, config, broadcaster, tmp_path,
+    ):
+        manager = DownloadManager(config, broadcaster, tmp_path / "config.toml")
+        channel_id = config["channels"][0]["channel_id"]
+        snapshot = manager._snapshot_config("selected", [channel_id])
+        assert len(snapshot["channels"]) == 1
+        assert snapshot["channels"][0]["is_first"] is False
+        assert config["channels"][0]["is_first"] is True
 
 
 class TestUpdateYtDlp:

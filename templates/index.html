@@ -1,1543 +1,367 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
     <title>YT-DLP 下载管理器</title>
-    <style>
-        :root {
-            --bg: #1e1e2e;
-            --surface: #313244;
-            --surface2: #45475a;
-            --overlay: #585b70;
-            --text: #cdd6f4;
-            --subtext: #a6adc8;
-            --accent: #89b4fa;
-            --green: #a6e3a1;
-            --red: #f38ba8;
-            --yellow: #f9e2af;
-            --peach: #fab387;
-            --mauve: #cba6f7;
-            --border: #45475a;
-        }
-
-        *, *::before, *::after {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 14px;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            line-height: 1.5;
-        }
-
-        /* ─── Tabs ─── */
-        .tabs {
-            position: sticky;
-            top: 0;
-            z-index: 30;
-            display: flex;
-            gap: 0;
-            background: var(--bg);
-            border-bottom: 1px solid var(--border);
-            padding: 0 20px;
-        }
-        .tab {
-            padding: 12px 24px;
-            cursor: pointer;
-            color: var(--subtext);
-            font-size: 14px;
-            font-weight: 500;
-            border-bottom: 2px solid transparent;
-            transition: color 0.2s, border-color 0.2s;
-            user-select: none;
-            white-space: nowrap;
-        }
-        .tab:hover { color: var(--text); }
-        .tab.active {
-            color: var(--accent);
-            border-bottom-color: var(--accent);
-        }
-
-        /* ─── Panel ─── */
-        .panel {
-            display: none;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .panel.active { display: block; }
-
-        /* ─── Section title ─── */
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin: 24px 0 12px;
-            color: var(--text);
-        }
-        .section-title:first-child { margin-top: 0; }
-
-        /* ─── Grid ─── */
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-
-        /* ─── Card ─── */
-        .card {
-            background: var(--surface);
-            border-radius: 8px;
-            padding: 16px;
-            border: 1px solid var(--border);
-        }
-        .card-label {
-            font-size: 12px;
-            color: var(--subtext);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }
-        .card-value {
-            font-size: 28px;
-            font-weight: 600;
-            color: var(--accent);
-        }
-
-        /* ─── Status dot ─── */
-        .status-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-        .status-dot.on {
-            background: var(--green);
-            box-shadow: 0 0 8px var(--green);
-        }
-        .status-dot.off {
-            background: var(--red);
-            box-shadow: 0 0 8px var(--red);
-        }
-        .status-dot.waiting {
-            background: var(--yellow);
-            box-shadow: 0 0 8px var(--yellow);
-        }
-
-        /* ─── Progress bar ─── */
-        #progress-bar {
-            position: relative;
-            width: 100%;
-            height: 24px;
-            background: var(--surface2);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 12px;
-        }
-        .progress-fill {
-            height: 100%;
-            background: var(--accent);
-            transition: width 0.3s;
-            min-width: 0;
-        }
-        .progress-text {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text);
-            font-size: 13px;
-            font-weight: 500;
-        }
-
-        /* ─── Control row ─── */
-        .ctrl-row {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        .ctrl-row label {
-            min-width: 140px;
-            color: var(--subtext);
-            font-size: 14px;
-        }
-
-        /* ─── Buttons ─── */
-        button {
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 16px;
-            background: var(--accent);
-            color: var(--bg);
-            transition: opacity 0.2s;
-            user-select: none;
-            white-space: nowrap;
-        }
-        button:hover { opacity: 0.85; }
-        button:active { opacity: 0.7; }
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        button.secondary {
-            background: var(--surface2);
-            color: var(--text);
-        }
-        button.danger {
-            background: var(--red);
-            color: var(--bg);
-        }
-
-        /* ─── Inputs ─── */
-        input[type="text"],
-        input[type="url"],
-        input[type="number"] {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        input[type="text"]:focus,
-        input[type="url"]:focus,
-        input[type="number"]:focus {
-            border-color: var(--accent);
-        }
-
-        select {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            outline: none;
-            cursor: pointer;
-            transition: border-color 0.2s;
-        }
-        select:focus { border-color: var(--accent); }
-
-        textarea {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            color: var(--text);
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 14px;
-            outline: none;
-            transition: border-color 0.2s;
-            font-family: monospace;
-            resize: vertical;
-        }
-        textarea:focus { border-color: var(--accent); }
-
-        input[type="checkbox"] {
-            accent-color: var(--accent);
-            cursor: pointer;
-            width: 16px;
-            height: 16px;
-        }
-
-        input[type="file"] {
-            font-size: 14px;
-            color: var(--text);
-        }
-
-        /* ─── Table ─── */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th {
-            text-transform: uppercase;
-            font-size: 12px;
-            color: var(--subtext);
-            background: var(--surface);
-            border-bottom: 2px solid var(--border);
-            padding: 10px 12px;
-            text-align: left;
-            white-space: nowrap;
-        }
-        td {
-            font-size: 14px;
-            border-bottom: 1px solid var(--border);
-            padding: 10px 12px;
-        }
-        tr:hover td {
-            background: var(--surface2);
-        }
-        tr.selected td {
-            background: var(--surface2);
-            outline: 1px solid var(--accent);
-        }
-        td.clickable {
-            cursor: pointer;
-        }
-        td.empty-state {
-            text-align: center;
-            padding: 40px 16px;
-            color: var(--subtext);
-            font-size: 15px;
-        }
-
-        /* ─── Log area ─── */
-        .log-area {
-            background: #11111b;
-            border-radius: 8px;
-            padding: 12px;
-            height: 400px;
-            overflow-y: auto;
-            font-family: 'Cascadia Code', 'Fira Code', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            border: 1px solid var(--border);
-        }
-        .log-line.INFO { color: var(--text); }
-        .log-line.WARNING { color: var(--yellow); }
-        .log-line.ERROR { color: var(--red); }
-        .log-line.SUCCESS { color: var(--green); }
-        .log-line.SKIP { color: var(--subtext); }
-        .log-line.PROGRESS { color: var(--subtext); }
-        .log-line.DETAIL { color: var(--overlay); }
-
-        /* ─── Issues panel (errors & warnings) ─── */
-        .log-issues {
-            background: #11111b;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            padding: 10px 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: 'Cascadia Code', 'Fira Code', monospace;
-            font-size: 12px;
-            line-height: 1.6;
-            display: none;
-        }
-        .log-issues .issues-header {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--subtext);
-            margin-bottom: 6px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--border);
-        }
-        .log-issues .issues-header .warn-count { color: var(--yellow); }
-        .log-issues .issues-header .error-count { color: var(--red); }
-
-        /* ─── Log stats ─── */
-        .log-stats {
-            background: #11111b;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            padding: 14px 16px;
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
-        }
-        .log-stats .stat-cell {
-            text-align: center;
-        }
-        .log-stats .stat-num {
-            font-size: 22px;
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-            line-height: 1.2;
-        }
-        .log-stats .stat-label {
-            font-size: 11px;
-            color: var(--subtext);
-            margin-top: 2px;
-        }
-        .log-stats .stat-num.c-success { color: var(--green); }
-        .log-stats .stat-num.c-warn   { color: var(--yellow); }
-        .log-stats .stat-num.c-error  { color: var(--red); }
-        .log-stats .stat-num.c-accent { color: var(--accent); }
-        .log-stats .stat-num.c-peach  { color: var(--peach); }
-        .log-stats .stat-num.c-subtext { color: var(--subtext); }
-        .log-stats .stat-num.c-mauve  { color: var(--mauve); }
-
-        /* ─── Modal ─── */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            z-index: 50;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal-overlay.open {
-            display: flex;
-        }
-        .modal {
-            background: var(--surface);
-            border-radius: 8px;
-            padding: 24px;
-            min-width: 400px;
-            max-width: 480px;
-            border: 1px solid var(--border);
-        }
-        .modal-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: var(--text);
-        }
-        .modal .ctrl-row {
-            margin-bottom: 12px;
-        }
-        .modal .ctrl-row label {
-            min-width: 120px;
-        }
-        .modal-buttons {
-            display: flex;
-            gap: 12px;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-
-        /* ─── Toast ─── */
-        .toast-container {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .toast {
-            padding: 12px 20px;
-            border-radius: 6px;
-            font-size: 14px;
-            background: var(--surface);
-            color: var(--text);
-            border-left: 4px solid var(--green);
-            animation: toastSlideIn 0.3s ease, toastFadeOut 0.3s ease 2.7s;
-            pointer-events: none;
-            max-width: 360px;
-            word-break: break-word;
-        }
-        .toast.ok { border-left-color: var(--green); }
-        .toast.err { border-left-color: var(--red); }
-
-        @keyframes toastSlideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes toastFadeOut {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-
-        /* ─── Mobile ─── */
-        @media (max-width: 640px) {
-            .tabs {
-                overflow-x: auto;
-                white-space: nowrap;
-                padding: 10px 16px;
-            }
-            .grid { grid-template-columns: 1fr; }
-            .ctrl-row {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .ctrl-row label { min-width: auto; }
-            .modal {
-                min-width: auto;
-                max-width: 94vw;
-                margin: 0 3vw;
-            }
-        }
-    </style>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <script src="/static/js/theme-boot.js"></script>
+    <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
+<svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8Z"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2 3.1 6.3L22 9.3l-5 4.9 1.2 6.8L12 17.8 5.8 21 7 14.2 2 9.3l6.9-1z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.1 9a7 7 0 0 1 11.4-2L20 12"/><path d="M18.9 15a7 7 0 0 1-11.4 2L4 12"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/><path d="M5.5 5.5a9.2 9.2 0 0 0 0 13M18.5 5.5a9.2 9.2 0 0 1 0 13"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-channels" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1"/><circle cx="8" cy="12" r="1"/><circle cx="8" cy="18" r="1"/></symbol>
+</svg>
 
-<!-- ─── Tabs ─── -->
-<div class="tabs" id="tabs">
-    <div class="tab active" data-panel="control">🎛 控制面板</div>
-    <div class="tab" data-panel="channels">📋 频道管理</div>
-    <div class="tab" data-panel="settings">⚙ 设置</div>
-</div>
-
-<!-- ═══════════════ Panel: 控制面板 ═══════════════ -->
-<div class="panel active" id="panel-control">
-    <div id="cookie-warning" style="display:none;background:var(--peach);color:var(--bg);padding:8px 16px;border-radius:6px;margin-bottom:16px;font-weight:500;">
-        ⚠ cookies 文件不存在，请前往「⚙ 设置」→ 上传或粘贴 Cookies 后再运行下载
+<header class="topbar">
+    <div class="brand">
+        <div class="brand-mark">DL</div>
+        <div>
+            <strong>YT-DLP Manager</strong>
+            <span>Batch download console</span>
+        </div>
     </div>
-    <div class="grid">
-        <div class="card">
-            <div class="card-label">运行状态</div>
+    <nav class="tabs" role="tablist" aria-label="主导航">
+        <button class="tab active" role="tab" aria-selected="true" data-panel="panel-control" id="tab-control">
+            <svg><use href="#i-play"></use></svg><span>控制台</span>
+        </button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="panel-channels" id="tab-channels" tabindex="-1">
+            <svg><use href="#i-channels"></use></svg><span>频道</span>
+        </button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="panel-settings" id="tab-settings" tabindex="-1">
+            <svg><use href="#i-settings"></use></svg><span>设置</span>
+        </button>
+    </nav>
+    <div class="topbar-actions">
+        <div class="connection" id="connection-state">
+            <span class="status-dot"></span><span>未连接</span>
+        </div>
+        <div class="segmented theme-switch" aria-label="主题">
+            <button data-theme-choice="system" title="跟随系统" aria-label="跟随系统"><svg><use href="#i-monitor"></use></svg></button>
+            <button data-theme-choice="light" title="浅色" aria-label="浅色"><svg><use href="#i-sun"></use></svg></button>
+            <button data-theme-choice="dark" title="深色" aria-label="深色"><svg><use href="#i-moon"></use></svg></button>
+        </div>
+        <button class="icon-button" id="token-change" title="更换 Token" aria-label="更换 Token"><svg><use href="#i-lock"></use></svg></button>
+    </div>
+</header>
+
+<main>
+    <section role="tabpanel" aria-labelledby="tab-control" id="panel-control">
+        <div class="alert warning" id="cookie-warning" hidden>
+            <strong>Cookie 文件不存在。</strong><span>请到设置页上传或粘贴 Netscape 格式 Cookies。</span>
+        </div>
+
+        <div class="dashboard-grid">
+            <article class="card status-card" id="status-card" data-state="idle">
+                <div class="card-heading">
+                    <span class="eyebrow">运行状态</span>
+                    <span class="status-pill" id="status-mode">已停止</span>
+                </div>
+                <div class="progress-track" aria-label="下载进度">
+                    <div class="progress-fill" id="progress-fill"></div>
+                    <span id="progress-text">0%</span>
+                </div>
+                <div class="channel-progress">
+                    <strong id="channel-progress">--</strong>
+                    <span id="channel-label"></span>
+                </div>
+                <div class="countdown" id="countdown-display"></div>
+            </article>
+
+            <article class="card action-card">
+                <div class="card-heading"><span class="eyebrow">下载控制</span></div>
+                <div class="button-grid">
+                    <button class="button primary" data-control-start="run-once"><svg><use href="#i-play"></use></svg><span>运行一次</span></button>
+                    <button class="button" data-control-start="run-loop"><svg><use href="#i-repeat"></use></svg><span>循环运行</span></button>
+                    <button class="button" data-control-start="run-first"><svg><use href="#i-star"></use></svg><span>首次下载</span></button>
+                    <button class="button danger" id="control-stop" disabled><svg><use href="#i-stop"></use></svg><span>停止</span></button>
+                </div>
+                <button class="button subtle wide" id="control-update"><svg><use href="#i-refresh"></use></svg><span>更新 yt-dlp</span></button>
+            </article>
+        </div>
+
+        <div class="section-heading">
+            <div><span class="eyebrow">运行摘要</span><h2 id="run-summary-label" hidden>上一轮摘要</h2></div>
+        </div>
+        <div class="stats-grid" id="log-stats" hidden>
+            <div class="stat"><strong id="stat-total">0</strong><span>总任务</span></div>
+            <div class="stat success"><strong id="stat-complete">0</strong><span>已完成</span></div>
+            <div class="stat warning"><strong id="stat-warning">0</strong><span>有警告</span></div>
+            <div class="stat"><strong id="stat-duration">0s</strong><span>耗时</span></div>
+            <div class="stat accent"><strong id="stat-downloaded">0</strong><span>下载文件</span></div>
+            <div class="stat"><strong id="stat-archive">0</strong><span>归档跳过</span></div>
+            <div class="stat"><strong id="stat-filtered">0</strong><span>过滤跳过</span></div>
+            <div class="stat"><strong id="stat-member">0</strong><span>会员限制</span></div>
+        </div>
+
+        <div class="log-layout">
+            <section class="log-panel">
+                <div class="panel-toolbar">
+                    <div><span class="eyebrow">实时日志</span></div>
+                    <div class="toolbar-actions">
+                        <label class="check-label"><input type="checkbox" id="auto-scroll" checked><span>自动滚动</span></label>
+                        <button class="button subtle" id="clear-logs"><svg><use href="#i-trash"></use></svg><span>清空</span></button>
+                    </div>
+                </div>
+                <div class="log-area" id="log-area"><p class="muted">等待任务开始...</p></div>
+            </section>
+            <aside class="issues-panel">
+                <div class="panel-toolbar"><span class="eyebrow">问题</span><span id="issues-header"></span></div>
+                <div class="issues-list" id="log-issues"></div>
+            </aside>
+        </div>
+    </section>
+
+    <section role="tabpanel" aria-labelledby="tab-channels" id="panel-channels" hidden>
+        <div class="page-heading">
             <div>
-                <span class="status-dot off" id="status-dot"></span>
-                <span id="status-mode" style="font-size:16px;vertical-align:middle;">已停止</span>
+                <span class="eyebrow">Channel inventory</span>
+                <h1>频道管理</h1>
+                <p>列表顺序就是执行顺序。点击频道打开详情抽屉。</p>
             </div>
-<div id="progress-bar" class="progress-bar">
-    <div class="progress-fill" id="progress-fill" style="width:0%"></div>
-    <div class="progress-text" id="progress-text">0%</div>
-</div>
+            <button class="button primary" id="channel-add"><svg><use href="#i-plus"></use></svg><span>添加频道</span></button>
         </div>
-        <div class="card">
-            <div class="card-label">频道进度</div>
-            <div class="card-value" id="channel-progress">--</div>
-            <div style="font-size:13px;color:var(--subtext);margin-top:4px;" id="channel-label"></div>
-            <div style="font-size:13px;color:var(--subtext);margin-top:4px;" id="countdown-display"></div>
-        </div>
-    </div>
 
-    <div class="ctrl-row">
-        <button id="btn-run-once" onclick="post('/api/control/run-once')">▶ 运行一次</button>
-        <button id="btn-run-loop" onclick="post('/api/control/run-loop')">🔁 循环运行</button>
-        <button id="btn-run-first" onclick="post('/api/control/run-first')">⭐ 仅首次下载</button>
-        <button class="danger" id="btn-stop" onclick="post('/api/control/stop')" disabled>⏹ 停止</button>
-        <button class="secondary" id="btn-update-ytdlp" onclick="post('/api/control/update-ytdlp')">🔄 更新 yt-dlp</button>
-    </div>
-
-    <div class="ctrl-row">
-        <button class="secondary" onclick="clearLogs()">🗑 清空显示</button>
-        <label style="display:inline-flex;align-items:center;gap:6px;min-width:auto;cursor:pointer;user-select:none;">
-            <input type="checkbox" id="auto-scroll" checked>
-            <span style="color:var(--subtext);">自动滚动</span>
-        </label>
-    </div>
-
-    <div id="run-summary-label" style="display:none;color:var(--subtext);font-size:13px;margin:10px 0 6px;"></div>
-    <div class="log-stats" id="log-stats" style="display:none;">
-        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-total">--</div><div class="stat-label">总任务</div></div>
-        <div class="stat-cell"><div class="stat-num c-success" id="ls-ok">--</div><div class="stat-label">已完成</div></div>
-        <div class="stat-cell"><div class="stat-num c-warn" id="ls-warn">--</div><div class="stat-label">有警告</div></div>
-        <div class="stat-cell"><div class="stat-num c-accent" id="ls-duration">--</div><div class="stat-label">耗时</div></div>
-        <div class="stat-cell"><div class="stat-num c-peach" id="ls-dl">--</div><div class="stat-label">📥 下载</div></div>
-        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-archive">--</div><div class="stat-label">📦 归档跳过</div></div>
-        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-filter">--</div><div class="stat-label">⏭ 过滤跳过</div></div>
-        <div class="stat-cell"><div class="stat-num c-subtext" id="ls-member">--</div><div class="stat-label">🔒 会员限制</div></div>
-    </div>
-
-    <div class="log-area" id="log-area"><div style="color:var(--subtext)">等待任务开始...</div></div>
-
-    <div class="log-issues" id="log-issues">
-        <div class="issues-header" id="issues-header"></div>
-    </div>
-</div>
-
-<!-- ═══════════════ Panel: 频道管理 ═══════════════ -->
-<div class="panel" id="panel-channels">
-    <div class="ctrl-row">
-        <button onclick="openChannelModal('add')">➕ 添加频道</button>
-        <button class="secondary" onclick="editSelectedChannel()">✏️ 编辑选中</button>
-        <button class="danger" onclick="deleteSelectedChannel()">🗑 删除选中</button>
-        <span id="channel-count" style="margin-left:12px;color:var(--subtext);">共 0 个频道</span>
-    </div>
-    <div style="overflow-x: auto;">
-        <table>
-            <thead>
-                <tr>
-                    <th>启用</th>
-                    <th>文件夹</th>
-                    <th>YouTube ID</th>
-                    <th>类型</th>
-                    <th>下载</th>
-                    <th>正则</th>
-                    <th>首次</th>
-                </tr>
-            </thead>
-            <tbody id="channels-tbody"></tbody>
-        </table>
-    </div>
-
-    <!-- Channel Edit Modal -->
-    <div class="modal-overlay" id="channel-modal-overlay">
-        <div class="modal">
-            <div class="modal-title" id="channel-modal-title">添加频道</div>
-            <div class="ctrl-row">
-                <label>文件夹名称</label>
-                <input type="text" id="ch-folder" placeholder="频道A" style="flex:1;">
-            </div>
-            <div class="ctrl-row">
-                <label>YouTube ID</label>
-                <input type="text" id="ch-ytid" placeholder="@channel_handle" style="flex:1;">
-            </div>
-            <div class="ctrl-row">
-                <label>视频类型</label>
-                <select id="ch-vidtype" style="flex:1;">
-                    <option value="videos">videos</option>
-                    <option value="streams">streams</option>
-                    <option value="shorts">shorts</option>
-                </select>
-            </div>
-            <div class="ctrl-row">
-                <label>下载类型</label>
-                <select id="ch-dltype" style="flex:1;">
-                    <option value="audio">audio</option>
-                    <option value="video">video</option>
-                </select>
-            </div>
-            <div class="ctrl-row">
-                <label>使用 ASMR 正则匹配</label>
-                <input type="checkbox" id="ch-isregex">
-            </div>
-            <div class="ctrl-row">
-                <label>启用</label>
-                <input type="checkbox" id="ch-enabled" checked>
-            </div>
-            <div class="ctrl-row">
-                <label>首次下载</label>
-                <input type="checkbox" id="ch-isfirst">
-            </div>
-            <div class="modal-buttons">
-                <button id="channel-modal-save">保存</button>
-                <button class="secondary" onclick="closeChannelModal()">取消</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ═══════════════ Panel: 设置 ═══════════════ -->
-<div class="panel" id="panel-settings">
-    <div class="section-title">通用设置</div>
-    <div class="ctrl-row">
-        <label>输出目录</label>
-        <input type="text" id="cfg-output_base_path" placeholder="/downloads" style="flex:1;max-width:400px;">
-    </div>
-    <div class="ctrl-row">
-        <label>代理地址</label>
-        <input type="text" id="cfg-proxy_url" placeholder="socks5://127.0.0.1:1080" style="flex:1;max-width:400px;">
-    </div>
-    <div class="ctrl-row">
-        <label>Cookie 来源</label>
-        <select id="cfg-cookies_source" style="flex:1;max-width:200px;" onchange="toggleCookieSection()">
-            <option value="file">📁 文件</option>
-            <option value="browser">🌐 浏览器</option>
-        </select>
-    </div>
-
-    <div class="ctrl-row">
-        <label for="cfg-po_token_enabled">PO Token</label>
-        <input type="checkbox" id="cfg-po_token_enabled">
-    </div>
-    <div class="ctrl-row">
-        <label for="cfg-po_token_base_url">Token 服务地址</label>
-        <input type="url" id="cfg-po_token_base_url" style="flex:1;max-width:400px;">
-    </div>
-
-    <!-- 文件模式 -->
-    <div id="cookie-file-section">
-        <div class="ctrl-row">
-            <label>Cookie 文件路径</label>
-            <input type="text" id="cfg-cookies_file_path" placeholder="/app/config/cookies.txt" style="flex:1;max-width:400px;">
-        </div>
-        <div class="ctrl-row">
-            <label>上传 Cookies</label>
-            <input type="file" id="cookies-file" accept=".txt" style="flex:1;max-width:300px;">
-            <button class="secondary" onclick="uploadCookies()">上传</button>
-        </div>
-        <div class="ctrl-row">
-            <label>粘贴 Cookies</label>
-            <textarea id="cookies-text" placeholder="直接粘贴 Netscape 格式的 cookie 内容（从浏览器导出或用 --cookies-from-browser 获取）..." rows="4" style="flex:1;max-width:500px;"></textarea>
-            <button class="secondary" onclick="saveCookiesText()">保存</button>
-        </div>
-    </div>
-
-    <!-- 浏览器模式 -->
-    <div id="cookie-browser-section" style="display:none;">
-        <div class="ctrl-row">
-            <label>浏览器</label>
-            <select id="cfg-cookies_browser" style="flex:1;max-width:200px;">
-                <option value="firefox">Firefox</option>
-                <option value="chrome">Chrome</option>
-                <option value="chromium">Chromium</option>
-                <option value="brave">Brave</option>
-                <option value="edge">Edge</option>
-                <option value="opera">Opera</option>
+        <div class="channel-toolbar">
+            <label class="search-field">
+                <svg><use href="#i-search"></use></svg>
+                <input id="channel-search" type="search" placeholder="搜索名称、Handle 或 UC ID" autocomplete="off">
+            </label>
+            <select id="channel-filter-enabled" aria-label="启用状态">
+                <option value="all">全部状态</option>
+                <option value="true">已启用</option>
+                <option value="false">已停用</option>
             </select>
+            <select id="channel-filter-vid" aria-label="内容类型">
+                <option value="all">全部类型</option>
+                <option value="videos">视频</option>
+                <option value="streams">直播</option>
+                <option value="shorts">Shorts</option>
+            </select>
+            <select id="channel-filter-dl" aria-label="下载类型">
+                <option value="all">音频与视频</option>
+                <option value="audio">音频</option>
+                <option value="video">视频</option>
+            </select>
+            <select id="channel-filter-runtime" aria-label="运行状态">
+                <option value="all">全部运行状态</option>
+                <option value="idle">未运行</option>
+                <option value="running">下载中</option>
+                <option value="success">成功</option>
+                <option value="warning">有警告</option>
+                <option value="error">失败</option>
+            </select>
+            <select id="channel-sort" aria-label="排序">
+                <option value="manual">手动执行顺序</option>
+                <option value="name">名称</option>
+                <option value="status">运行状态</option>
+                <option value="recent">最近运行</option>
+                <option value="type">类型</option>
+            </select>
+            <button class="icon-button" id="channel-refresh" title="刷新" aria-label="刷新频道"><svg><use href="#i-refresh"></use></svg></button>
         </div>
-        <div class="ctrl-row">
-            <label>Profile 路径</label>
-            <input type="text" id="cfg-cookies_browser_profile" placeholder="留空=自动检测，或填写容器内路径" style="flex:1;max-width:400px;">
+        <div class="list-meta">
+            <span id="channel-count">0 个频道</span>
+            <span id="channel-drag-hint"></span>
         </div>
-        <div class="ctrl-row">
-            <label>容器名称</label>
-            <input type="text" id="cfg-cookies_browser_container" placeholder="留空=全部，none=无容器" style="flex:1;max-width:200px;">
+
+        <div class="table-shell">
+            <table id="channels-table">
+                <thead>
+                    <tr>
+                        <th class="drag-column"></th>
+                        <th class="check-column"><input type="checkbox" id="select-all-channels" aria-label="选择当前筛选结果"></th>
+                        <th>频道</th>
+                        <th>来源</th>
+                        <th>配置</th>
+                        <th>运行状态</th>
+                        <th>最近运行</th>
+                        <th class="actions-column">操作</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="mobile-channel-list" id="channels-mobile"></div>
+
+        <div class="batch-bar" id="batch-bar" hidden>
+            <strong id="batch-count">已选择 0 个</strong>
+            <select id="batch-action" aria-label="批量操作">
+                <option value="enable">启用</option>
+                <option value="disable">停用</option>
+                <option value="run">运行</option>
+                <option value="set_vid_type">修改内容类型</option>
+                <option value="set_dl_type">修改下载类型</option>
+                <option value="set_is_first">修改首次标记</option>
+                <option value="set_filter">修改过滤规则</option>
+                <option value="delete">删除</option>
+            </select>
+            <select id="batch-value" aria-label="批量操作值"></select>
+            <input id="batch-filter-text" aria-label="批量过滤正则" placeholder="标题正则" hidden>
+            <button class="button primary" id="batch-apply">应用</button>
+            <button class="button subtle" id="clear-channel-selection">取消选择</button>
+        </div>
+    </section>
+
+    <section role="tabpanel" aria-labelledby="tab-settings" id="panel-settings" hidden>
+        <div class="page-heading">
+            <div><span class="eyebrow">Runtime settings</span><h1>设置</h1><p>路径由容器环境变量固定，其余配置保存后从下一轮生效。</p></div>
+            <button class="button primary" id="settings-save"><svg><use href="#i-save"></use></svg><span>保存设置</span></button>
+        </div>
+
+        <div class="settings-grid">
+            <section class="settings-section">
+                <h2>网络与下载</h2>
+                <label class="field"><span>输出根目录</span><input id="cfg-output" readonly></label>
+                <label class="field"><span>代理地址</span><input id="cfg-proxy" placeholder="socks5://proxy:1080"></label>
+                <div class="field-row">
+                    <label class="field"><span>请求间隔</span><input id="cfg-sleep-requests" type="number" min="0" max="120"></label>
+                    <label class="field"><span>任务间休眠</span><input id="cfg-sleep-time" placeholder="5s"></label>
+                    <label class="field"><span>循环等待（分钟）</span><input id="cfg-wait" type="number" min="1"></label>
+                </div>
+                <label class="field"><span>日期过滤</span><input id="cfg-dateafter" pattern="\d{8}"></label>
+                <label class="field"><span>文件名格式</span><input id="cfg-filename"></label>
+                <div class="field-row">
+                    <label class="field"><span>常规上限</span><input id="cfg-normal-limit" type="number" min="1"></label>
+                    <label class="field"><span>首次上限</span><input id="cfg-first-limit" type="number" min="1"></label>
+                </div>
+                <div class="field-row">
+                    <label class="field"><span>常规超时（分钟）</span><input id="cfg-normal-timeout" type="number" min="1"></label>
+                    <label class="field"><span>首次超时（分钟）</span><input id="cfg-first-timeout" type="number" min="1"></label>
+                    <label class="field"><span>日志保留行数</span><input id="cfg-log-history" type="number" min="10"></label>
+                </div>
+                <label class="check-label"><input type="checkbox" id="cfg-quiet"><span>安静模式</span></label>
+            </section>
+
+            <section class="settings-section">
+                <h2>Cookie 与 PO Token</h2>
+                <label class="field">
+                    <span>Cookie 来源</span>
+                    <select id="cfg-cookies-source"><option value="file">文件</option><option value="browser">浏览器 Profile</option></select>
+                </label>
+                <div id="cookie-file-section">
+                    <label class="field"><span>上传 cookies.txt</span><input id="cookie-file" type="file" accept=".txt"></label>
+                    <button class="button subtle" id="cookies-upload"><svg><use href="#i-upload"></use></svg><span>上传</span></button>
+                    <label class="field"><span>粘贴 Netscape Cookies</span><textarea id="cookies-text" rows="5"></textarea></label>
+                    <button class="button subtle" id="cookies-save-text"><svg><use href="#i-save"></use></svg><span>保存 Cookie 文本</span></button>
+                </div>
+                <div id="cookie-browser-section" hidden>
+                    <label class="field"><span>浏览器</span><select id="cfg-cookies-browser"><option>firefox</option><option>chrome</option><option>chromium</option><option>brave</option><option>edge</option></select></label>
+                    <label class="field"><span>Profile 路径</span><input id="cfg-cookies-profile"></label>
+                    <label class="field"><span>容器名称</span><input id="cfg-cookies-container"></label>
+                </div>
+                <label class="check-label"><input type="checkbox" id="cfg-po-enabled"><span>启用 PO Token</span></label>
+                <label class="field"><span>Token 服务地址</span><input id="cfg-po-url" type="url"></label>
+            </section>
+
+            <section class="settings-section danger-zone">
+                <h2>服务维护</h2>
+                <p>重启会中断当前下载任务。网页自更新默认关闭，推荐更新容器镜像。</p>
+                <button class="button danger" id="restart-service"><svg><use href="#i-refresh"></use></svg><span>重启服务</span></button>
+            </section>
+        </div>
+    </section>
+</main>
+
+<dialog id="channel-drawer" class="drawer-dialog">
+    <form id="channel-form" class="drawer">
+        <div class="drawer-header">
+            <div><span class="eyebrow">Channel detail</span><h2 id="channel-drawer-title">添加频道</h2></div>
+            <button type="button" class="icon-button" id="channel-drawer-close" title="关闭" aria-label="关闭"><svg><use href="#i-x"></use></svg></button>
+        </div>
+        <div class="drawer-body">
+            <div class="alert error" id="channel-form-error" hidden></div>
+            <section class="form-section">
+                <h3>基本信息</h3>
+                <label class="field"><span>文件夹名称</span><input name="folder_name" id="channel-folder" required maxlength="200"></label>
+                <p class="form-warning" id="channel-folder-warning" hidden></p>
+                <p class="help">重命名文件夹只影响后续下载，不会移动已有媒体文件。</p>
+                <label class="field"><span>YouTube Handle、URL 或 UC ID</span><input name="youtube_id" id="channel-youtube-id" required></label>
+                <button type="button" class="button subtle" id="channel-resolve"><svg><use href="#i-radio"></use></svg><span>联网验证并解析</span></button>
+                <p class="help" id="channel-resolve-status"></p>
+            </section>
+            <section class="form-section">
+                <h3>下载策略</h3>
+                <div class="field-row">
+                    <label class="field"><span>内容类型</span><select name="vid_type" id="channel-vid-type"><option value="videos">视频</option><option value="streams">直播</option><option value="shorts">Shorts</option></select></label>
+                    <label class="field"><span>下载类型</span><select name="dl_type" id="channel-dl-type"><option value="audio">音频</option><option value="video">视频</option></select></label>
+                </div>
+                <label class="check-label"><input type="checkbox" name="enabled" id="channel-enabled"><span>启用频道</span></label>
+                <label class="check-label"><input type="checkbox" name="is_first" id="channel-is-first"><span>使用首次下载上限</span></label>
+            </section>
+            <section class="form-section">
+                <h3>标题过滤</h3>
+                <label class="check-label"><input type="checkbox" name="filter_enabled" id="channel-filter-enabled"><span>只下载匹配标题</span></label>
+                <label class="field"><span>正则表达式</span><input name="title_filter" id="channel-title-filter" placeholder="(?i)(ASMR|安眠)"></label>
+                <button type="button" class="button subtle" id="channel-filter-preset">使用 ASMR 预设</button>
+            </section>
+            <section class="form-section preview-section">
+                <h3>预览</h3>
+                <div><span>输出目录</span><code id="channel-output-preview"></code></div>
+                <div><span>频道 URL</span><code id="channel-url-preview"></code></div>
+            </section>
+        </div>
+        <div class="drawer-footer">
+            <div class="drawer-secondary-actions">
+                <button type="button" class="button danger" id="channel-delete"><svg><use href="#i-trash"></use></svg><span>删除</span></button>
+                <button type="button" class="button subtle" id="channel-copy"><svg><use href="#i-copy"></use></svg><span>复制</span></button>
+                <button type="button" class="button subtle" id="channel-test"><svg><use href="#i-radio"></use></svg><span>Dry-run</span></button>
+            </div>
+            <button class="button primary" id="channel-save"><svg><use href="#i-save"></use></svg><span>保存频道</span></button>
+        </div>
+    </form>
+</dialog>
+
+<dialog id="token-dialog" class="modal-dialog">
+    <form id="token-form" class="modal-card">
+        <div class="modal-icon"><svg><use href="#i-lock"></use></svg></div>
+        <span class="eyebrow">Access token</span>
+        <h2>连接下载管理器</h2>
+        <p>输入部署时设置的 `APP_TOKEN`。Token 保存在当前浏览器中。</p>
+        <input class="sr-only" name="username" value="yt-dlp-gui" autocomplete="username" tabindex="-1" aria-hidden="true">
+        <label class="field"><span>APP_TOKEN</span><input id="token-input" type="password" autocomplete="current-password" required></label>
+        <p class="form-error" id="token-error"></p>
+        <button class="button primary wide" type="submit"><svg><use href="#i-check"></use></svg><span>验证并连接</span></button>
+    </form>
+</dialog>
+
+<dialog id="confirm-dialog" class="modal-dialog">
+    <div class="modal-card">
+        <span class="eyebrow">Confirm action</span>
+        <h2 id="confirm-title">确认操作</h2>
+        <p id="confirm-message"></p>
+        <div class="modal-actions">
+            <button class="button subtle" id="confirm-cancel">取消</button>
+            <button class="button danger" id="confirm-accept">确认</button>
         </div>
     </div>
+</dialog>
 
-    <div class="section-title">下载设置</div>
-    <div class="ctrl-row">
-        <label>常规下载上限</label>
-        <input type="number" id="cfg-normal_limit" min="1" max="99999" style="width:120px;">
-    </div>
-    <div class="ctrl-row">
-        <label>首次下载上限</label>
-        <input type="number" id="cfg-first_run_limit" min="1" max="99999" style="width:120px;">
-    </div>
-    <div class="ctrl-row">
-        <label>请求间隔(秒)</label>
-        <input type="number" id="cfg-sleep_requests" min="0" max="120" style="width:120px;">
-    </div>
-    <div class="ctrl-row">
-        <label>任务间休眠时间</label>
-        <input type="text" id="cfg-sleep_time" placeholder="如 5s、1m、0.5h" style="width:200px;">
-    </div>
-    <div class="ctrl-row">
-        <label>循环等待间隔(分钟)</label>
-        <input type="number" id="cfg-wait_time_minutes" min="1" max="99999" style="width:120px;">
-    </div>
-    <div class="ctrl-row">
-        <label>日期过滤</label>
-        <input type="text" id="cfg-dateafter" pattern="\d{8}" placeholder="20000101" style="width:140px;">
-    </div>
-    <div class="ctrl-row">
-        <label>常规超时(分钟)</label>
-        <input type="number" id="cfg-normal_timeout" min="1" max="99999" style="width:120px;">
-    </div>
-    <div class="ctrl-row">
-        <label>首次超时(分钟)</label>
-        <input type="number" id="cfg-first_run_timeout" min="1" max="99999" style="width:120px;">
-    </div>
-    <div class="ctrl-row">
-        <label>下载归档文件</label>
-        <input type="text" id="cfg-download_archive" placeholder="archive.txt" style="flex:1;max-width:300px;">
-    </div>
-    <div class="ctrl-row">
-        <label>文件名格式</label>
-        <input type="text" id="cfg-filename_format" style="flex:1;max-width:500px;">
-    </div>
-    <div class="ctrl-row">
-        <label>安静模式</label>
-        <input type="checkbox" id="cfg-quiet_mode">
-    </div>
-    <div class="ctrl-row">
-        <label>日志保留行数</label>
-        <input type="number" id="cfg-log_max_history" min="10" max="9999" style="width:120px;">
-    </div>
-
-    <div class="ctrl-row" style="margin-top:16px;">
-        <button onclick="saveSettings()">💾 保存设置</button>
-        <button class="danger" onclick="restartServer()" style="margin-left:12px;">🔄 重启服务</button>
-    </div>
-</div>
-
-<!-- ─── Toast container ─── -->
-<div class="toast-container" id="toast-container"></div>
-
-<script>
-// ═══════════════════════════════════════════════════════════
-// State
-// ═══════════════════════════════════════════════════════════
-var channels = [];
-var selectedChannelId = null;
-var channelModalMode = 'add';
-var channelModalId = null;
-var wsReconnectDelay = 1000;
-var wsReconnectMax = 30000;
-var wsReconnectTimer = null;
-var countdownRemaining = null;
-var countdownTimer = null;
-var LOG_MAX = 200;
-
-// Issues panel counters
-var _issuesCount = { warn: 0, error: 0 };
-var ISSUES_MAX = 200;
-
-// ═══════════════════════════════════════════════════════════
-// Tab switching
-// ═══════════════════════════════════════════════════════════
-document.getElementById('tabs').addEventListener('click', function(e) {
-    var tab = e.target.closest('.tab');
-    if (!tab) return;
-    var panelId = tab.getAttribute('data-panel');
-    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-    tab.classList.add('active');
-    document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-    var panel = document.getElementById('panel-' + panelId);
-    if (panel) panel.classList.add('active');
-});
-
-// ═══════════════════════════════════════════════════════════
-// Toast
-// ═══════════════════════════════════════════════════════════
-function toast(msg, ok) {
-    var el = document.createElement('div');
-    el.className = 'toast ' + (ok ? 'ok' : 'err');
-    el.textContent = msg;
-    document.getElementById('toast-container').appendChild(el);
-    setTimeout(function() {
-        if (el.parentNode) el.parentNode.removeChild(el);
-    }, 3000);
-}
-
-// ═══════════════════════════════════════════════════════════
-// HTTP helpers
-// ═══════════════════════════════════════════════════════════
-function _showApiError(res, json) {
-    if (json && json.detail && Array.isArray(json.detail)) {
-        json.detail.forEach(function(d) {
-            var loc = (d.loc || []).join('.');
-            toast((loc ? loc + ': ' : '') + d.msg, false);
-        });
-    } else if (json && typeof json.detail === 'string') {
-        toast(json.detail, false);
-    } else {
-        toast('请求失败 (' + res.status + ')', false);
-    }
-}
-async function get(url) {
-    try {
-        var res = await fetch(url);
-        if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
-        return await res.json();
-    } catch (e) {
-        console.error('GET ' + url + ' failed:', e);
-        return null;
-    }
-}
-
-async function post(url, body) {
-    try {
-        var opts = { method: 'POST' };
-        if (body !== undefined) {
-            opts.headers = { 'Content-Type': 'application/json' };
-            opts.body = JSON.stringify(body);
-        }
-        var res = await fetch(url, opts);
-        var json = await res.json();
-        if (!res.ok) { _showApiError(res, json); return { ok: false }; }
-        if (!json.ok) {
-            toast(json.reason || '操作失败', false);
-        }
-        return json;
-    } catch (e) {
-        toast('请求失败: ' + e.message, false);
-        return { ok: false, reason: e.message };
-    }
-}
-
-async function put(url, body) {
-    try {
-        var res = await fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        var json = await res.json();
-        if (!res.ok) { _showApiError(res, json); return { ok: false }; }
-        if (json.ok === false) {
-            toast(json.reason || '请求失败', false);
-        }
-        return json;
-    } catch (e) {
-        toast('网络错误: ' + e.message, false);
-        return { ok: false };
-    }
-}
-
-async function del(url) {
-    try {
-        var res = await fetch(url, { method: 'DELETE' });
-        var json = await res.json();
-        if (!res.ok) { _showApiError(res, json); return { ok: false }; }
-        if (json.ok === false) {
-            toast(json.reason || '删除失败', false);
-        }
-        return json;
-    } catch (e) {
-        toast('网络错误: ' + e.message, false);
-        return { ok: false };
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// Status polling
-// ═══════════════════════════════════════════════════════════
-async function fetchStatus() {
-    var data = await get('/api/status');
-    if (!data) return;
-
-    var dot = document.getElementById('status-dot');
-    var modeEl = document.getElementById('status-mode');
-    var btnRunOnce = document.getElementById('btn-run-once');
-    var btnRunLoop = document.getElementById('btn-run-loop');
-    var btnRunFirst = document.getElementById('btn-run-first');
-    var btnStop = document.getElementById('btn-stop');
-    var btnUpdate = document.getElementById('btn-update-ytdlp');
-
-    var state = data.state || (data.running ? 'running' : 'idle');
-    var active = data.active !== undefined ? data.active : data.running;
-
-    // Status dot
-    if (state === 'running') {
-        dot.className = 'status-dot on';
-    } else if (state === 'waiting' || state === 'stopping') {
-        dot.className = 'status-dot waiting';
-    } else {
-        dot.className = 'status-dot off';
-    }
-
-    // Mode text
-    var modeTexts = { once: '▶ 运行一次', loop: '🔁 循环运行', first_only: '⭐ 仅首次下载' };
-    if (state === 'running') {
-        modeEl.textContent = (modeTexts[data.mode] || data.mode || '运行中');
-    } else if (state === 'waiting') {
-        modeEl.textContent = '⏰ 等待下一轮';
-    } else if (state === 'stopping') {
-        modeEl.textContent = '正在停止';
-    } else {
-        modeEl.textContent = '已停止';
-    }
-
-    // Button states
-    btnRunOnce.disabled = active;
-    btnRunLoop.disabled = active;
-    btnRunFirst.disabled = active;
-    btnStop.disabled = !active || state === 'stopping';
-    btnUpdate.disabled = active;
-
-    // Progress bar
-    var pct = data.progress_percent || 0;
-    document.getElementById('progress-fill').style.width = pct + '%';
-    document.getElementById('progress-text').textContent = Math.round(pct) + '%';
-
-    // Channel progress
-    if (data.total_channels > 0) {
-        document.getElementById('channel-progress').textContent =
-            ((data.current_channel_index || 0) + 1) + ' / ' + data.total_channels;
-    } else {
-        document.getElementById('channel-progress').textContent = '--';
-    }
-    document.getElementById('channel-label').textContent = data.current_channel_label || '';
-    updateRunStats(data.current_run || data.last_run, !!data.current_run);
-
-    // Countdown
-    if (data.next_round_seconds > 0) {
-        countdownRemaining = data.next_round_seconds;
-        if (!countdownTimer) startCountdown();
-    } else {
-        countdownRemaining = null;
-        if (countdownTimer) stopCountdown();
-        document.getElementById('countdown-display').textContent = '';
-    }
-}
-
-function updateRunStats(summary, isCurrent) {
-    var stats = document.getElementById('log-stats');
-    var label = document.getElementById('run-summary-label');
-    if (!summary) {
-        stats.style.display = 'none';
-        label.style.display = 'none';
-        return;
-    }
-    stats.style.display = 'grid';
-    label.style.display = 'block';
-    label.textContent = isCurrent ? '当前轮次' : '上一轮摘要';
-    document.getElementById('ls-total').textContent = summary.total_channels || 0;
-    document.getElementById('ls-ok').textContent = summary.completed_channels || 0;
-    document.getElementById('ls-warn').textContent = summary.warning_channels || 0;
-    document.getElementById('ls-dl').textContent = summary.downloaded_files || 0;
-    document.getElementById('ls-archive').textContent = summary.archive_skipped || 0;
-    document.getElementById('ls-filter').textContent = summary.filtered_skipped || 0;
-    document.getElementById('ls-member').textContent = summary.member_skipped || 0;
-    document.getElementById('ls-duration').textContent = formatDuration(summary.duration_seconds || 0);
-}
-
-function formatDuration(seconds) {
-    seconds = Math.max(0, Math.floor(seconds));
-    var h = Math.floor(seconds / 3600);
-    var m = Math.floor((seconds % 3600) / 60);
-    var s = seconds % 60;
-    var parts = [];
-    if (h) parts.push(h + 'h');
-    if (m || h) parts.push(m + 'm');
-    parts.push(s + 's');
-    return parts.join('');
-}
-
-function startCountdown() {
-    if (countdownTimer) clearInterval(countdownTimer);
-    countdownTimer = setInterval(function() {
-        if (countdownRemaining !== null && countdownRemaining > 0) {
-            countdownRemaining -= 1;
-            document.getElementById('countdown-display').textContent =
-                '⏰ 下一轮: ' + formatCountdown(countdownRemaining);
-        } else {
-            document.getElementById('countdown-display').textContent = '';
-            stopCountdown();
-        }
-    }, 1000);
-}
-
-function stopCountdown() {
-    if (countdownTimer) {
-        clearInterval(countdownTimer);
-        countdownTimer = null;
-    }
-    countdownRemaining = null;
-}
-
-function formatCountdown(seconds) {
-    if (!seconds || seconds <= 0) return '--';
-    var m = Math.floor(seconds / 60);
-    var s = Math.floor(seconds % 60);
-    if (m > 0) return m + 'm ' + s + 's';
-    return s + 's';
-}
-
-// ═══════════════════════════════════════════════════════════
-// WebSocket
-// ═══════════════════════════════════════════════════════════
-function connectWS() {
-    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var wsUrl = proto + '//' + location.host + '/ws/logs';
-    var ws;
-
-    function doConnect() {
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = function() {
-            wsReconnectDelay = 1000;
-            if (wsReconnectTimer) {
-                clearTimeout(wsReconnectTimer);
-                wsReconnectTimer = null;
-            }
-        };
-
-        ws.onmessage = function(event) {
-            try {
-                var data = JSON.parse(event.data);
-                var level = data.level || 'INFO';
-                var msg = data.msg || '';
-                var isProgress = false;
-
-                // Parse PROGRESS level messages for embedded progress JSON
-                if (level === 'PROGRESS') {
-                    try {
-                        var pd = JSON.parse(msg);
-                        if (pd && pd.type === 'progress') {
-                            isProgress = true;
-                            document.getElementById('progress-fill').style.width = pd.percent + '%';
-                            document.getElementById('progress-text').textContent = Math.round(pd.percent) + '%';
-                            if (pd.channel_total > 0) {
-                                document.getElementById('channel-progress').textContent =
-                                    ((pd.channel_index || 0) + 1) + ' / ' + pd.channel_total;
-                            }
-                            document.getElementById('channel-label').textContent = pd.channel_label || '';
-                        }
-                    } catch (_) {}
-                }
-
-                // Append as log line (non-progress or fallback)
-                if (!isProgress && level !== 'PROGRESS') {
-                    appendLogLine(level, msg, data.ts);
-                }
-            } catch (_) {}
-        };
-
-        ws.onclose = function() {
-            ws = null;
-            scheduleReconnect();
-        };
-
-        ws.onerror = function() {
-            // onclose will fire after this
-        };
-    }
-
-    function scheduleReconnect() {
-        if (wsReconnectTimer) return;
-        wsReconnectTimer = setTimeout(function() {
-            wsReconnectTimer = null;
-            doConnect();
-            wsReconnectDelay = Math.min(wsReconnectDelay * 2, wsReconnectMax);
-        }, wsReconnectDelay);
-    }
-
-    doConnect();
-}
-
-function addLogLine(level, msg) {
-    appendLogLine(level, msg, new Date().toISOString());
-}
-
-function appendLogLine(level, msg, ts) {
-    var tsStr;
-    try {
-        var d = ts ? new Date(ts) : new Date();
-        if (isNaN(d.getTime())) throw 'invalid';
-        var hh = String(d.getHours()).padStart(2, '0');
-        var mm = String(d.getMinutes()).padStart(2, '0');
-        var ss = String(d.getSeconds()).padStart(2, '0');
-        tsStr = '[' + hh + ':' + mm + ':' + ss + ']';
-    } catch (_) {
-        tsStr = '';
-    }
-
-    var div = document.createElement('div');
-    div.className = 'log-line ' + level;
-    div.textContent = (tsStr ? tsStr + ' ' : '') + msg;
-
-    var area = document.getElementById('log-area');
-    area.appendChild(div);
-
-    // Buffer limit
-    while (area.children.length > LOG_MAX) {
-        area.removeChild(area.firstChild);
-    }
-
-    // Auto-scroll
-    if (document.getElementById('auto-scroll').checked) {
-        area.scrollTop = area.scrollHeight;
-    }
-
-    // ── Issues panel (warnings & errors) ──
-    if (level === 'WARNING' || level === 'ERROR') {
-        var ip = document.getElementById('log-issues');
-        ip.style.display = 'block';
-        var idiv = document.createElement('div');
-        idiv.className = 'log-line ' + level;
-        idiv.textContent = (tsStr ? tsStr + ' ' : '') + msg;
-        ip.appendChild(idiv);
-        while (ip.children.length > ISSUES_MAX + 1) {  // +1 for header
-            if (ip.children[1]) ip.removeChild(ip.children[1]);
-        }
-        if (level === 'WARNING') _issuesCount.warn++;
-        else _issuesCount.error++;
-        document.getElementById('issues-header').innerHTML =
-            '<span class="warn-count">⚠ ' + _issuesCount.warn + ' 个警告</span>'
-            + ' · '
-            + '<span class="error-count">✖ ' + _issuesCount.error + ' 个错误</span>';
-        if (document.getElementById('auto-scroll').checked) {
-            ip.scrollTop = ip.scrollHeight;
-        }
-    }
-}
-
-function clearLogs() {
-    document.getElementById('log-area').innerHTML = '';
-    // Reset issues panel
-    _issuesCount = { warn: 0, error: 0 };
-    var ip = document.getElementById('log-issues');
-    ip.innerHTML = '<div class="issues-header" id="issues-header"></div>';
-    ip.style.display = 'none';
-}
-
-// ═══════════════════════════════════════════════════════════
-// Channel CRUD
-// ═══════════════════════════════════════════════════════════
-async function loadChannels() {
-    var data = await get('/api/channels');
-    if (data && data.channels) {
-        channels = data.channels;
-        renderChannelTable();
-    }
-}
-
-function renderChannelTable() {
-    var tbody = document.getElementById('channels-tbody');
-    var countEl = document.getElementById('channel-count');
-    tbody.innerHTML = '';
-
-    if (channels.length === 0) {
-        var tr = document.createElement('tr');
-        var td = document.createElement('td');
-        td.className = 'empty-state';
-        td.colSpan = 7;
-        td.textContent = '暂无频道，请添加';
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-        countEl.textContent = '共 0 个频道';
-        return;
-    }
-
-    countEl.textContent = '共 ' + channels.length + ' 个频道';
-
-    channels.forEach(function(ch, idx) {
-        var tr = document.createElement('tr');
-        tr.setAttribute('data-channel-id', ch.channel_id);
-        if (ch.channel_id === selectedChannelId) tr.classList.add('selected');
-
-        // Enabled toggle
-        var tdEnabled = document.createElement('td');
-        tdEnabled.className = 'clickable';
-        tdEnabled.textContent = ch.enabled ? '☑' : '☐';
-        tdEnabled.style.color = ch.enabled ? 'var(--green)' : 'var(--overlay)';
-        tdEnabled.style.fontSize = '18px';
-        tdEnabled.onclick = function(e) {
-            e.stopPropagation();
-            toggleChannelField(ch.channel_id, 'enabled', !ch.enabled);
-        };
-
-        // Folder
-        var tdFolder = document.createElement('td');
-        tdFolder.textContent = ch.folder_name;
-
-        // YouTube ID
-        var tdYtid = document.createElement('td');
-        tdYtid.textContent = ch.youtube_id;
-
-        // Vid type
-        var tdVid = document.createElement('td');
-        tdVid.textContent = ch.vid_type;
-
-        // Dl type
-        var tdDl = document.createElement('td');
-        tdDl.textContent = ch.dl_type;
-
-        // Regex
-        var tdRegex = document.createElement('td');
-        tdRegex.textContent = ch.is_regex ? '✓' : '';
-
-        // Is first toggle
-        var tdFirst = document.createElement('td');
-        tdFirst.className = 'clickable';
-        tdFirst.textContent = ch.is_first ? '☑' : '☐';
-        tdFirst.style.color = ch.is_first ? 'var(--green)' : 'var(--overlay)';
-        tdFirst.style.fontSize = '18px';
-        tdFirst.onclick = function(e) {
-            e.stopPropagation();
-            toggleChannelField(ch.channel_id, 'is_first', !ch.is_first);
-        };
-
-        tr.appendChild(tdEnabled);
-        tr.appendChild(tdFolder);
-        tr.appendChild(tdYtid);
-        tr.appendChild(tdVid);
-        tr.appendChild(tdDl);
-        tr.appendChild(tdRegex);
-        tr.appendChild(tdFirst);
-
-        // Row click for selection
-        tr.onclick = function() {
-            selectedChannelId = ch.channel_id;
-            renderChannelTable();
-        };
-
-        tbody.appendChild(tr);
-    });
-}
-
-async function toggleChannelField(channelId, field, newValue) {
-    var ch = channels.find(function(item) { return item.channel_id === channelId; });
-    if (!ch) return;
-    var body = {
-        folder_name: ch.folder_name,
-        youtube_id: ch.youtube_id,
-        vid_type: ch.vid_type,
-        dl_type: ch.dl_type,
-        enabled: ch.enabled,
-        is_regex: ch.is_regex,
-        is_first: ch.is_first,
-    };
-    body[field] = newValue;
-
-    var result = await put('/api/channels/id/' + encodeURIComponent(channelId), body);
-    if (result.ok) {
-        channels = result.channels;
-        renderChannelTable();
-    }
-}
-
-function openChannelModal(mode, channelId) {
-    channelModalMode = mode;
-    channelModalId = channelId || null;
-
-    var overlay = document.getElementById('channel-modal-overlay');
-    var title = document.getElementById('channel-modal-title');
-
-    if (mode === 'add') {
-        title.textContent = '添加频道';
-        document.getElementById('ch-folder').value = '';
-        document.getElementById('ch-ytid').value = '';
-        document.getElementById('ch-vidtype').value = 'videos';
-        document.getElementById('ch-dltype').value = 'audio';
-        document.getElementById('ch-isregex').checked = false;
-        document.getElementById('ch-enabled').checked = true;
-        document.getElementById('ch-isfirst').checked = true;
-    } else if (mode === 'edit') {
-        title.textContent = '编辑频道';
-        var ch = channels.find(function(item) { return item.channel_id === channelId; });
-        if (!ch) return;
-        document.getElementById('ch-folder').value = ch.folder_name;
-        document.getElementById('ch-ytid').value = ch.youtube_id;
-        document.getElementById('ch-vidtype').value = ch.vid_type;
-        document.getElementById('ch-dltype').value = ch.dl_type;
-        document.getElementById('ch-isregex').checked = ch.is_regex;
-        document.getElementById('ch-enabled').checked = ch.enabled !== false;
-        document.getElementById('ch-isfirst').checked = ch.is_first;
-    }
-
-    overlay.classList.add('open');
-}
-
-function closeChannelModal() {
-    document.getElementById('channel-modal-overlay').classList.remove('open');
-}
-
-async function saveChannel() {
-    var folder = document.getElementById('ch-folder').value.trim();
-    var ytid = document.getElementById('ch-ytid').value.trim();
-
-    if (!folder || !ytid) {
-        toast('文件夹名称和 YouTube ID 不能为空', false);
-        return;
-    }
-
-    var body = {
-        folder_name: folder,
-        youtube_id: ytid,
-        vid_type: document.getElementById('ch-vidtype').value,
-        dl_type: document.getElementById('ch-dltype').value,
-        enabled: document.getElementById('ch-enabled').checked,
-        is_regex: document.getElementById('ch-isregex').checked,
-        is_first: document.getElementById('ch-isfirst').checked,
-    };
-
-    var result;
-    if (channelModalMode === 'add') {
-        result = await post('/api/channels', body);
-    } else {
-        result = await put('/api/channels/id/' + encodeURIComponent(channelModalId), body);
-    }
-
-    if (result.ok) {
-        channels = result.channels;
-        closeChannelModal();
-        renderChannelTable();
-        toast(channelModalMode === 'add' ? '频道已添加' : '频道已更新', true);
-    }
-}
-
-function editSelectedChannel() {
-    if (!selectedChannelId) {
-        toast('请先选中一个频道', false);
-        return;
-    }
-    openChannelModal('edit', selectedChannelId);
-}
-
-async function deleteSelectedChannel() {
-    if (!selectedChannelId) {
-        toast('请先选中一个频道', false);
-        return;
-    }
-    var ch = channels.find(function(item) { return item.channel_id === selectedChannelId; });
-    if (!ch) return;
-    if (!confirm('确认删除频道 "' + ch.folder_name + '" (' + ch.youtube_id + ')？')) return;
-
-    try {
-        var json = await del('/api/channels/id/' + encodeURIComponent(selectedChannelId));
-        if (json.ok) {
-            channels = json.channels;
-            selectedChannelId = null;
-            renderChannelTable();
-            toast('频道已删除', true);
-        }
-    } catch (e) {
-        toast('请求失败: ' + e.message, false);
-    }
-}
-
-// Modal save button
-document.getElementById('channel-modal-save').onclick = saveChannel;
-
-// ═══════════════════════════════════════════════════════════
-// Settings
-// ═══════════════════════════════════════════════════════════
-async function loadConfig() {
-    var data = await get('/api/config');
-    if (!data) return;
-
-    var g = data.general || {};
-    setVal('cfg-output_base_path', g.output_base_path);
-    setVal('cfg-proxy_url', g.proxy_url);
-    setVal('cfg-cookies_file_path', g.cookies_file_path);
-    setVal('cfg-cookies_source', g.cookies_source);
-    setVal('cfg-cookies_browser', g.cookies_browser);
-    setVal('cfg-cookies_browser_profile', g.cookies_browser_profile);
-    setVal('cfg-cookies_browser_container', g.cookies_browser_container);
-    setVal('cfg-po_token_enabled', g.po_token_enabled !== false, true);
-    setVal('cfg-po_token_base_url', g.po_token_base_url || 'http://bgutil-provider:4416');
-    toggleCookieSection();
-    setVal('cfg-sleep_requests', g.sleep_requests);
-    setVal('cfg-sleep_time', g.sleep_time);
-    setVal('cfg-wait_time_minutes', g.wait_time_minutes);
-    setVal('cfg-dateafter', g.dateafter);
-    setVal('cfg-download_archive', g.download_archive);
-    setVal('cfg-filename_format', g.filename_format);
-    setVal('cfg-quiet_mode', g.quiet_mode, true);
-    setVal('cfg-normal_timeout', g.normal_timeout);
-    setVal('cfg-first_run_timeout', g.first_run_timeout);
-    setVal('cfg-log_max_history', g.log_max_history);
-    LOG_MAX = g.log_max_history || 200;
-
-    var dl = data.download_limits || {};
-    setVal('cfg-normal_limit', dl.normal_limit);
-    setVal('cfg-first_run_limit', dl.first_run_limit);
-}
-
-function setVal(id, value, isCheckbox) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    if (isCheckbox) {
-        el.checked = !!value;
-    } else if (value !== undefined && value !== null) {
-        el.value = value;
-    }
-}
-
-async function restartServer() {
-    if (!confirm('确认重启服务？正在下载的任务将被中断。')) return;
-    var result = await post('/api/control/restart');
-    if (result && result.ok) {
-        toast('服务正在重启，页面即将刷新...', true);
-        setTimeout(function() { location.reload(); }, 3000);
-    }
-}
-
-async function saveSettings() {
-    var body = {
-        output_base_path: document.getElementById('cfg-output_base_path').value,
-        proxy_url: document.getElementById('cfg-proxy_url').value,
-        sleep_requests: parseInt(document.getElementById('cfg-sleep_requests').value) || 5,
-        sleep_time: document.getElementById('cfg-sleep_time').value || '5s',
-        wait_time_minutes: parseInt(document.getElementById('cfg-wait_time_minutes').value) || 360,
-        quiet_mode: document.getElementById('cfg-quiet_mode').checked,
-        dateafter: document.getElementById('cfg-dateafter').value || '20000101',
-        download_archive: document.getElementById('cfg-download_archive').value || 'archive.txt',
-        filename_format: document.getElementById('cfg-filename_format').value,
-        normal_limit: parseInt(document.getElementById('cfg-normal_limit').value) || 20,
-        first_run_limit: parseInt(document.getElementById('cfg-first_run_limit').value) || 99999,
-        first_run_timeout: parseInt(document.getElementById('cfg-first_run_timeout').value) || 360,
-        normal_timeout: parseInt(document.getElementById('cfg-normal_timeout').value) || 60,
-        cookies_file_path: document.getElementById('cfg-cookies_file_path').value || '/app/config/cookies.txt',
-        cookies_source: document.getElementById('cfg-cookies_source').value,
-        cookies_browser: document.getElementById('cfg-cookies_browser').value,
-        cookies_browser_profile: document.getElementById('cfg-cookies_browser_profile').value,
-        cookies_browser_container: document.getElementById('cfg-cookies_browser_container').value,
-        po_token_enabled: document.getElementById('cfg-po_token_enabled').checked,
-        po_token_base_url: document.getElementById('cfg-po_token_base_url').value.trim() || 'http://bgutil-provider:4416',
-        log_max_history: parseInt(document.getElementById('cfg-log_max_history').value) || 200,
-    };
-
-    var result = await put('/api/config', body);
-    if (result.ok) {
-        LOG_MAX = body.log_max_history;
-        toast('设置已保存', true);
-        checkCookieStatus();
-    }
-}
-
-async function uploadCookies() {
-    var input = document.getElementById('cookies-file');
-    var file = input.files[0];
-    if (!file) {
-        toast('请先选择 .txt 文件', false);
-        return;
-    }
-    var formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        var res = await fetch('/api/cookies', { method: 'POST', body: formData });
-        var json = await res.json();
-        if (json.ok) {
-            toast('Cookies 上传成功: ' + json.path, true);
-            checkCookieStatus();
-        } else {
-            toast(json.reason || '上传失败', false);
-        }
-    } catch (e) {
-        toast('上传失败: ' + e.message, false);
-    }
-    input.value = '';
-}
-
-async function saveCookiesText() {
-    var textarea = document.getElementById('cookies-text');
-    var content = textarea.value.trim();
-    if (!content) {
-        toast('请粘贴 cookie 内容', false);
-        return;
-    }
-
-    try {
-        var res = await fetch('/api/cookies/text', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: content })
-        });
-        var json = await res.json();
-        if (json.ok) {
-            toast('Cookies 已保存: ' + json.path, true);
-            textarea.value = '';
-            checkCookieStatus();
-        } else {
-            toast(json.reason || '保存失败', false);
-        }
-    } catch (e) {
-        toast('保存失败: ' + e.message, false);
-    }
-}
-
-async function checkCookieStatus() {
-    var source = document.getElementById('cfg-cookies_source').value;
-    var warning = document.getElementById('cookie-warning');
-    if (source === 'file') {
-        try {
-            var res = await fetch('/api/cookies/status');
-            var json = await res.json();
-            if (json.ok && !json.exists) {
-                warning.style.display = 'block';
-                warning.textContent = '\u26a0 cookies 文件不存在，请前往「\u2699 设置」→ 上传或粘贴 Cookies 后再运行下载';
-            } else {
-                warning.style.display = 'none';
-            }
-        } catch (_) {}
-    } else {
-        warning.style.display = 'none';
-    }
-}
-
-function toggleCookieSection() {
-    var source = document.getElementById('cfg-cookies_source').value;
-    document.getElementById('cookie-file-section').style.display = source === 'file' ? '' : 'none';
-    document.getElementById('cookie-browser-section').style.display = source === 'browser' ? '' : 'none';
-}
-
-// ═══════════════════════════════════════════════════════════
-// Init
-// ═══════════════════════════════════════════════════════════
-function init() {
-    loadConfig();
-    loadChannels();
-    connectWS();
-    fetchStatus();
-    checkCookieStatus();
-    setInterval(fetchStatus, 1000);
-}
-
-var loadSettings = loadConfig;
-
-document.addEventListener('DOMContentLoaded', init);
-</script>
-
+<div class="toast-container" id="toast-container" aria-live="polite"></div>
+<script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

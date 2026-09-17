@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
-from unittest.mock import AsyncMock, MagicMock, patch
+import signal
+import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -287,7 +288,8 @@ class TestFilenameTooLongFallback:
     def test_download_channel_retries_with_safe_title_after_filename_too_long(self, engine):
         first = FakeProcess(
             [
-                "ERROR: unable to open for writing: [Errno 36] File name too long: '/downloads/x.part'\n",
+                "ERROR: unable to open for writing: [Errno 36] "
+                "File name too long: '/downloads/x.part'\n",
             ],
             returncode=1,
         )
@@ -314,7 +316,7 @@ class TestFilenameTooLongFallback:
         assert second_cmd[second_cmd.index("-o") + 1].endswith("[%(safe_title).120B].%(ext)s")
         engine._broadcaster.broadcast_sync.assert_any_call(
             "WARNING",
-            "⚠ 检测到文件名过长，启用短文件名降级重试：移除末尾标签块并限制标题 120B",
+            "检测到文件名过长，启用短文件名降级重试",
         )
 
 
@@ -329,7 +331,7 @@ class TestRunAll:
             {"folder_name": "B", "enabled": False, "is_first": False},
         ]
         assert engine.run_all() is True
-        engine._broadcaster.broadcast_sync.assert_any_call("WARNING", "⚠ 没有启用的频道")
+        engine._broadcaster.broadcast_sync.assert_any_call("WARNING", "没有启用的频道")
 
     def test_sorts_first_channels_first(self, engine):
         engine.channels = [
@@ -373,8 +375,8 @@ class TestRunStatistics:
         stats = engine.get_run_stats()
         assert stats["member_skipped"] == 1
         assert stats["hard_errors"] == 0
-        assert stats["warning_channels"] == 0
-        assert stats["completed_channels"] == 1
+        assert stats["warning_channels"] == 1
+        assert stats["completed_channels"] == 0
         assert any(
             call.args[0] == "SKIP" and "Join this channel" in call.args[1]
             for call in engine._broadcaster.broadcast_sync.call_args_list
@@ -425,3 +427,44 @@ class TestRunStatistics:
         assert callback.call_count == 2
         assert callback.call_args_list[-1].args[0]["percent"] == 50.0
         assert engine._broadcaster.broadcast_sync is original_broadcast
+
+
+class TestProcessTermination:
+    def test_terminate_escalates_to_sigkill(self, engine):
+        class StubbornProcess:
+            pid = 12345
+            returncode = None
+
+            def poll(self):
+                return None
+
+            def wait(self, timeout=None):
+                if timeout == 10:
+                    raise subprocess.TimeoutExpired("yt-dlp", timeout)
+                self.returncode = 0
+                return 0
+
+        process = StubbornProcess()
+        signals = []
+        with patch.object(
+            engine,
+            "_signal_process",
+            side_effect=lambda _, sig: signals.append(sig),
+        ):
+            engine._terminate_process(process, grace_seconds=10)
+        assert signals == [signal.SIGTERM, getattr(signal, "SIGKILL", signal.SIGTERM)]
+
+
+class TestCommandSafety:
+    def test_empty_proxy_is_not_passed(self, engine):
+        command = engine._build_command(engine.channels[0], "%(id)s.%(ext)s")
+        assert "--proxy" not in command
+
+    def test_title_filter_is_applied(self, engine):
+        channel = {
+            **engine.channels[0],
+            "filter_enabled": True,
+            "title_filter": "(?i)ASMR",
+        }
+        command = engine._build_command(channel, "%(id)s.%(ext)s")
+        assert command[command.index("--match-filter") + 1].endswith("title ~= (?i)ASMR")

@@ -1,4 +1,4 @@
-# PO Token integration (v2.0.13)
+# PO Token integration (v3)
 
 The default download path keeps the configured file/browser cookies and uses
 YouTube's `web_creator` client with the bgutil HTTP PO Token provider. Disabling
@@ -9,10 +9,15 @@ PO Token in Settings restores yt-dlp's default client selection.
 Keep your existing Compose volume mappings, then rebuild and start both services:
 
 ```sh
+export APP_TOKEN="$(openssl rand -hex 32)"
 docker compose up -d --build
 docker compose ps
 docker compose logs --tail=100 bgutil-provider
 ```
+
+The WebUI requires `APP_TOKEN` for every `/api/v1/*` request and for the
+`/ws/logs` token query parameter. Do not expose the WebSocket URL to logging
+middleware that records query strings.
 
 The GUI image installs the provider plugin ZIP for the standalone yt-dlp binary.
 The plugin and sidecar are both pinned to 2.0.0; update them together in the
@@ -36,7 +41,7 @@ That proxy must be reachable from BOTH containers; localhost is container-local.
 
 ### WSL / Ubuntu Deployment
 
-`docker-compose.wsl.yml` preserves the owner's port 55595, data directories and
+`docker-compose.wsl.yml` preserves port 55595, data directories and
 read-only Firefox profile mount. It builds `yt-dlp-gui:local` from this checkout;
 unpublished changes are not available by pulling
 `ghcr.io/sliots/yt-dlp-gui:nightly`.

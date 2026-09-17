@@ -1,28 +1,31 @@
 services:
   yt-dlp-gui:
     build: .
+    image: ghcr.io/sliots/yt-dlp-gui:local
     ports:
-      - "8080:8080"
+      - "${HOST_BIND_IP:-0.0.0.0}:${HOST_PORT:-8080}:8080"
     volumes:
-      # 持久化目录：config.toml + archive.txt + cookies.txt
-      - /host/yt-dlp-data:/app/config
-      # 下载产物
-      - /host/downloads:/downloads
-      # 浏览器 Profile（cookies-from-browser 模式，Firefox 推荐）
-      # Windows 宿主机: C:\Users\xxx\AppData\Roaming\Mozilla\Firefox\Profiles\xxx.default-release
-      # WSL 中对应:   /mnt/c/Users/xxx/AppData/Roaming/Mozilla/Firefox/Profiles/xxx.default-release
-      # - /mnt/c/Users/xxx/AppData/Roaming/Mozilla/Firefox/Profiles/xxx.default-release:/firefox-profile:ro
-      # 二进制覆盖（可选：不挂载则使用 Dockerfile 内置版本）
-      # - /host/yt-dlp:/usr/local/bin/yt-dlp
+      - yt-dlp-config:/app/config
+      - yt-dlp-downloads:/downloads
     environment:
-      - TZ=Asia/Shanghai
+      APP_TOKEN: ${APP_TOKEN:?APP_TOKEN must be set}
+      TZ: Asia/Shanghai
+      ENABLE_SELF_UPDATE: "false"
     depends_on:
       bgutil-provider:
         condition: service_healthy
+    init: true
     restart: unless-stopped
-    mem_limit: 2g                       # 防止 Deno stdin hang（issue #16148）
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777,exec
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
     logging:
-      driver: "json-file"
+      driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
@@ -31,7 +34,6 @@ services:
     image: brainicism/bgutil-ytdlp-pot-provider:2.0.0
     init: true
     restart: unless-stopped
-    # Internal Compose network only; this service has no authentication.
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4416/ping').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
       interval: 30s
@@ -40,3 +42,7 @@ services:
       start_period: 20s
     logging:
       driver: "none"
+
+volumes:
+  yt-dlp-config:
+  yt-dlp-downloads:
