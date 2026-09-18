@@ -22,6 +22,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("yt_dlp_gui")
+VERSION = (
+    Path("VERSION").read_text(encoding="utf-8").strip()
+    if Path("VERSION").exists()
+    else "unknown"
+)
 
 
 class RedactingFilter(logging.Filter):
@@ -81,7 +86,7 @@ def create_app(
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "version": "3.0.0"}
+        return {"status": "ok", "version": VERSION}
 
     return app
 

@@ -375,10 +375,14 @@ class TestRunStatistics:
         stats = engine.get_run_stats()
         assert stats["member_skipped"] == 1
         assert stats["hard_errors"] == 0
-        assert stats["warning_channels"] == 1
-        assert stats["completed_channels"] == 0
+        assert stats["warning_channels"] == 0
+        assert stats["completed_channels"] == 1
         assert any(
             call.args[0] == "SKIP" and "Join this channel" in call.args[1]
+            for call in engine._broadcaster.broadcast_sync.call_args_list
+        )
+        assert any(
+            call.args == ("SUCCESS", "完成（会员内容已跳过）：TestChan (@test/videos)")
             for call in engine._broadcaster.broadcast_sync.call_args_list
         )
 
@@ -395,6 +399,28 @@ class TestRunStatistics:
         assert stats["hard_errors"] == 1
         assert stats["warning_channels"] == 1
         assert stats["completed_channels"] == 0
+
+    def test_member_skip_with_real_error_remains_warning(self, engine):
+        engine.channels = [engine.channels[0]]
+        process = FakeProcess([
+            "ERROR: [youtube] abc: Join this channel to get access to members-only content\n",
+            "ERROR: extractor failed\n",
+        ], returncode=1)
+        with (
+            patch("app.engine.threading.Timer", FakeTimer),
+            patch("app.engine.subprocess.Popen", return_value=process),
+        ):
+            assert engine.run_all() is True
+
+        stats = engine.get_run_stats()
+        assert stats["member_skipped"] == 1
+        assert stats["hard_errors"] == 1
+        assert stats["warning_channels"] == 1
+        assert stats["completed_channels"] == 0
+        assert not any(
+            call.args == ("SUCCESS", "完成（会员内容已跳过）：TestChan (@test/videos)")
+            for call in engine._broadcaster.broadcast_sync.call_args_list
+        )
 
     def test_download_and_skip_counters(self, engine):
         engine.channels = [engine.channels[0]]

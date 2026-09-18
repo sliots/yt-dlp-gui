@@ -457,7 +457,6 @@ class YtDlpEngine:
 
                 if any(pattern in line for pattern in MEMBER_ONLY_PATTERNS):
                     member_skipped += 1
-                    warning = True
                     self._increment_stat("member_skipped")
                     self._emit(f"[{folder}] {line}", "skip")
                 elif self._line_has_filename_too_long(line):
@@ -604,7 +603,12 @@ class YtDlpEngine:
             result.warning = result.warning or first_result.warning
             result.hard_errors += first_result.hard_errors
             result.member_skipped += first_result.member_skipped
-            if result.stopped or not result.ok:
+            fallback_member_only = (
+                result.member_skipped > 0
+                and result.hard_errors == 0
+                and not result.warning
+            )
+            if result.stopped or (not result.ok and not fallback_member_only):
                 self._last_channel_warning = True
                 self._record_channel_result(
                     channel,
@@ -615,7 +619,12 @@ class YtDlpEngine:
                     outcome="stopped" if result.stopped else "error",
                 )
                 return False
-        elif result.stopped or not result.ok:
+        member_only_skip = (
+            result.member_skipped > 0
+            and result.hard_errors == 0
+            and not result.warning
+        )
+        if not member_only_skip and (result.stopped or not result.ok):
             self._last_channel_warning = result.warning or result.hard_errors > 0
             self._record_channel_result(
                 channel,
@@ -628,7 +637,9 @@ class YtDlpEngine:
             return False
 
         outcome = "success"
-        if result.returncode != 0 or result.hard_errors or result.warning:
+        if member_only_skip:
+            self._emit(f"完成（会员内容已跳过）：{label}", "success")
+        elif result.returncode != 0 or result.hard_errors or result.warning:
             outcome = "warning"
             self._last_channel_warning = True
             self._emit(
