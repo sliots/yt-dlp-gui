@@ -3,7 +3,7 @@ FROM python:3.14-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
 
 ARG DENO_VERSION=v2.9.7
-ARG YTDLP_VERSION=2026.09.16.232951
+ARG YTDLP_VERSION=2026.10.21.233146
 ARG BGUTIL_VERSION=2.0.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
