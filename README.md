@@ -53,8 +53,13 @@ Compose 使用非 root 用户、只读根文件系统、`init`、能力削减和
 ```bash
 cd /mnt/c/dev/yt-dlp-gui
 export APP_TOKEN="$(openssl rand -hex 32)"
+export FIREFOX_PROFILE_PATH="/mnt/c/Users/YOUR_USER/AppData/Roaming/Mozilla/Firefox/Profiles/YOUR_PROFILE.default-release"
 docker compose -f docker-compose.wsl.yml up -d
 ```
+
+将 `FIREFOX_PROFILE_PATH` 替换为实际 Firefox 配置目录的 WSL 路径，可在 Firefox
+的 `about:profiles` 中查看。也可以在 `.env` 中设置该变量；WSL 配置要求提供此路径，
+并将已有目录只读挂载到 `/firefox-profile`，不会自动创建缺失目录。
 
 WSL 绑定目录必须允许 UID `10001` 写入：
 

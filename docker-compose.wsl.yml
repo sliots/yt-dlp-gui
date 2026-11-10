@@ -7,7 +7,12 @@ services:
     volumes:
       - /mnt/c/data/yt-dlp-gui/config:/app/config
       - /mnt/c/data/yt-dlp-gui/downloads:/downloads
-      - /mnt/c/Users/game7/AppData/Roaming/Mozilla/Firefox/Profiles/yfhavfk0.default-release:/firefox-profile:ro
+      - type: bind
+        source: ${FIREFOX_PROFILE_PATH:?FIREFOX_PROFILE_PATH must point to an existing Firefox profile directory}
+        target: /firefox-profile
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       APP_TOKEN: ${APP_TOKEN:?APP_TOKEN must be set}
       TZ: Asia/Shanghai

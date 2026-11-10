@@ -45,7 +45,16 @@ That proxy must be reachable from BOTH containers; localhost is container-local.
 read-only Firefox profile mount. It pulls
 `ghcr.io/sliots/yt-dlp-gui:nightly` on startup. Publish source changes through the
 manual GitHub Actions image workflow before updating the deployment.
-Run these commands in Ubuntu:
+Set `APP_TOKEN` and `FIREFOX_PROFILE_PATH` in the checkout's `.env` before running
+these commands in Ubuntu. Find the actual profile directory in Firefox
+`about:profiles`, then use its WSL path, for example:
+
+```dotenv
+FIREFOX_PROFILE_PATH="/mnt/c/Users/YOUR_USER/AppData/Roaming/Mozilla/Firefox/Profiles/YOUR_PROFILE.default-release"
+```
+
+The profile directory must already exist. Compose mounts it read-only at
+`/firefox-profile` and will not create a missing host directory.
 
 ```sh
 cd /mnt/c/dev/yt-dlp-gui
