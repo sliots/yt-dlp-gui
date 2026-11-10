@@ -6,11 +6,11 @@ PO Token in Settings restores yt-dlp's default client selection.
 
 ## Deployment
 
-Keep your existing Compose volume mappings, then rebuild and start both services:
+Keep your existing Compose volume mappings, then pull the nightly image and start both services:
 
 ```sh
 export APP_TOKEN="$(openssl rand -hex 32)"
-docker compose up -d --build
+docker compose up -d
 docker compose ps
 docker compose logs --tail=100 bgutil-provider
 ```
@@ -20,7 +20,7 @@ The WebUI requires `APP_TOKEN` for every `/api/v1/*` request and for the
 middleware that records query strings.
 
 The GUI image installs the provider plugin ZIP for the standalone yt-dlp binary.
-The plugin and sidecar are both pinned to 2.0.0; update them together in the
+The plugin and sidecar are both pinned to 2.0.2; update them together in the
 Dockerfile and Compose file. Updating yt-dlp from the GUI does not update either.
 
 Existing config files acquire `po_token_enabled = true` and
@@ -42,15 +42,15 @@ That proxy must be reachable from BOTH containers; localhost is container-local.
 ### WSL / Ubuntu Deployment
 
 `docker-compose.wsl.yml` preserves port 55595, data directories and
-read-only Firefox profile mount. It builds `yt-dlp-gui:local` from this checkout;
-unpublished changes are not available by pulling
-`ghcr.io/sliots/yt-dlp-gui:nightly`.
+read-only Firefox profile mount. It pulls
+`ghcr.io/sliots/yt-dlp-gui:nightly` on startup. Publish source changes through the
+manual GitHub Actions image workflow before updating the deployment.
 Run these commands in Ubuntu:
 
 ```sh
 cd /mnt/c/dev/yt-dlp-gui
 sudo docker compose -f docker-compose.wsl.yml config --quiet
-sudo docker compose -f docker-compose.wsl.yml up -d --build
+sudo docker compose -f docker-compose.wsl.yml up -d
 ```
 
 If an existing deployment still owns port 55595, update or stop that deployment
@@ -80,7 +80,7 @@ docker compose exec yt-dlp-gui /usr/local/bin/yt-dlp \
 
 Substitute your actual cookies path, or use `--cookies-from-browser` with the same
 browser/profile specification configured in Settings. Add your configured
-`--proxy` when applicable. Expect `bgutil:http-2.0.0` in the provider list and a
+`--proxy` when applicable. Expect `bgutil:http-2.0.2` in the provider list and a
 message about generating a PO Token for `web_creator` when a token is requested.
 Never share cookies or unredacted verbose logs.
 
@@ -93,4 +93,4 @@ bypass access permissions, or guarantee that YouTube bot checks will succeed.
 
 - https://github.com/yt-dlp/yt-dlp/issues/17497#issuecomment-5361357999
 - https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide
-- https://github.com/Brainicism/bgutil-ytdlp-pot-provider/tree/2.0.0
+- https://github.com/Brainicism/bgutil-ytdlp-pot-provider/tree/2.0.2

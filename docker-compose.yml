@@ -1,7 +1,7 @@
 services:
   yt-dlp-gui:
-    build: .
-    image: ghcr.io/sliots/yt-dlp-gui:local
+    image: ghcr.io/sliots/yt-dlp-gui:nightly
+    pull_policy: always
     ports:
       - "${HOST_BIND_IP:-0.0.0.0}:${HOST_PORT:-8080}:8080"
     volumes:

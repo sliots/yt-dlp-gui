@@ -36,8 +36,11 @@ uv run python -m app.main
 ```bash
 cp .env.example .env
 # 将 .env 中的 APP_TOKEN 替换为 openssl rand -hex 32 的输出
-docker compose up -d --build
+docker compose up -d
 ```
+
+两份 Compose 配置默认拉取 `ghcr.io/sliots/yt-dlp-gui:nightly`，启动时检查镜像更新，
+无需在部署机器上构建。`nightly` 由 GitHub Actions 手动发布，不使用定时触发。
 
 默认端口映射为 `0.0.0.0:8080:8080`。可通过环境变量调整：
 
@@ -50,7 +53,7 @@ Compose 使用非 root 用户、只读根文件系统、`init`、能力削减和
 ```bash
 cd /mnt/c/dev/yt-dlp-gui
 export APP_TOKEN="$(openssl rand -hex 32)"
-docker compose -f docker-compose.wsl.yml up -d --build
+docker compose -f docker-compose.wsl.yml up -d
 ```
 
 WSL 绑定目录必须允许 UID `10001` 写入：
