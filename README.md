@@ -14,6 +14,14 @@ uv run pyright app
 uv run python -m app.main
 ```
 
+Python 开发版本由 `.python-version` 固定，构建镜像使用相同版本；项目仍兼容
+Python 3.14 及以上版本。Python 没有官方 LTS 渠道，升级时选择最新稳定版。
+依赖升级后必须刷新并提交 `uv.lock`，日常安装使用 `uv sync --locked`。
+
+Deno 使用当前 LTS 维护线的最新补丁（GitHub stable 构建），yt-dlp 跟进 nightly。
+两者及 uv 的构建版本固定在 `Dockerfile`；bgutil 插件与两份 Compose 配置中的
+HTTP provider 必须保持相同版本，并在升级后一起验证。
+
 启动前必须设置至少 32 个字符的 `APP_TOKEN`：
 
 ```powershell

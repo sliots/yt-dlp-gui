@@ -1,9 +1,9 @@
-FROM python:3.14-slim AS builder
+FROM python:3.15.2-slim-trixie AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /bin/
 
-ARG DENO_VERSION=v2.9.7
-ARG YTDLP_VERSION=2026.10.21.233146
+ARG DENO_VERSION=v2.9.8
+ARG YTDLP_VERSION=2026.11.04.232659
 ARG BGUTIL_VERSION=2.0.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
@@ -28,7 +28,7 @@ RUN mkdir -p /out/plugins \
        -o /out/plugins/bgutil-ytdlp-pot-provider.zip \
     && chmod +x /out/deno /out/yt-dlp
 
-FROM python:3.14-slim AS runtime
+FROM python:3.15.2-slim-trixie AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
