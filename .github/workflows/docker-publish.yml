@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  schedule:
-    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
       version:
@@ -57,9 +55,7 @@ jobs:
         id: tags
         run: |
           IMG="ghcr.io/${GITHUB_REPOSITORY,,}"
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            TAGS="nightly"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAGS="${{ github.event.inputs.version }}"
             [[ -z "$TAGS" ]] && TAGS="nightly"
           else
