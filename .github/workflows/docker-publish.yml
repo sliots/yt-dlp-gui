@@ -1,4 +1,5 @@
 name: Build and Push Docker Image
+run-name: ${{ inputs.ytdlp_version && format('Build yt-dlp {0}', inputs.ytdlp_version) || 'Build and Push Docker Image' }}
 
 on:
   push:
@@ -9,6 +10,10 @@ on:
       version:
         description: "Version tag (e.g. 3.0.0), leave empty for nightly only"
         required: false
+      ytdlp_version:
+        description: "Official yt-dlp nightly tag; empty uses the Dockerfile pin"
+        required: false
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -41,6 +46,24 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: test "v$(cat VERSION)" = "${GITHUB_REF_NAME}"
 
+      - name: Resolve yt-dlp version
+        id: ytdlp
+        env:
+          REQUESTED_VERSION: ${{ inputs.ytdlp_version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -z "$REQUESTED_VERSION" ]]; then
+            exit 0
+          fi
+          if [[ ! "$REQUESTED_VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{6}$ ]]; then
+            echo "Invalid official nightly tag" >&2
+            exit 1
+          fi
+          gh api "repos/yt-dlp/yt-dlp-nightly-builds/releases/tags/$REQUESTED_VERSION" > "$RUNNER_TEMP/ytdlp-release.json"
+          jq -e --arg version "$REQUESTED_VERSION" '.tag_name == $version and .draft == false and any(.assets[]; .name == "yt-dlp_linux" and .state == "uploaded")' "$RUNNER_TEMP/ytdlp-release.json"
+          echo "build_args=YTDLP_VERSION=$REQUESTED_VERSION" >> "$GITHUB_OUTPUT"
+          printf 'yt-dlp nightly: `%s`\n' "$REQUESTED_VERSION" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
 
@@ -69,6 +92,7 @@ jobs:
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
+          build-args: ${{ steps.ytdlp.outputs.build_args }}
           push: true
           tags: ${{ steps.tags.outputs.list }}
           cache-from: type=gha
